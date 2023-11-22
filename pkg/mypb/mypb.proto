@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package mypb;
+option go_package = "github.com/ablingchos/my-project/pkg/mypb";
+
+message JobInfo {
+    string jobname = 1;
+    string next_exec_time = 2;
+    string interval = 3;
+}
+
+message DispatchJobRequest {
+    JobInfo job_info = 1;
+}
+
+message DispatchJobResponse {
+    string message = 1;
+}
+
+service JobScheduler {
+    rpc DispatchJob(DispatchJobRequest) returns (DispatchJobResponse);
+}
+
+message JobStartedRequest {
+    string jobname = 1;
+}
+
+message JobStartedResponse {
+    string message = 1;
+}
+
+message JobCompletedRequest {
+    string jobname = 1;
+    string jobresult = 2;
+}
+
+message JobCompletedResponse {
+    string message = 1;
+}
+
+service JobStatus {
+    rpc JobStarted(JobStartedRequest) returns (JobStartedResponse);
+    rpc JobCompleted(JobCompletedRequest) returns (JobCompletedResponse);
+}
+
+message WorkerHelloRequest {
+    string workerURI = 1;
+}
+
+message WorkerHelloResponse {
+    string message = 1;
+}
+
+service EtcdHello {
+    rpc WorkerHello(WorkerHelloRequest) returns (WorkerHelloResponse);
+}
