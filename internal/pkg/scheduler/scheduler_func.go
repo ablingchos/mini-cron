@@ -24,7 +24,7 @@ var (
 	newworker = make(chan struct{})
 )
 
-// 当有新的worker上线时，在调度器中对其进行注册
+// 当有新的worker上线时，在调度器中对其进行注册,并为其开启一个心跳watcher
 func registWorker() {
 	for workerURI := range WorkerManager.newWorker {
 		newWorker := &WorkerInfo{
@@ -43,6 +43,8 @@ func registWorker() {
 
 		workermu.Lock()
 		WorkerManager.mutex.Lock()
+		// newWatcher := newWatcher(EtcdClient, workerURI)
+		// workerWatcher[workerURI] = newWatcher
 
 		mlog.Infof("New worker %s added to schedule list", newWorker.workerURI)
 		workerClient[workerURI] = grpcclient

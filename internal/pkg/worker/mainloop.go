@@ -12,14 +12,15 @@ import (
 )
 
 var (
-	DbClient        kvdb.KVDb
-	EtcdClient      *clientv3.Client
-	Interval        time.Duration
-	Loc             *time.Location
-	etcdHelloClient mypb.EtcdHelloClient
-	jobStatusClient mypb.JobStatusClient
-	JobManager      *jobManager
-	workerKey       = "workerURI"
+	DbClient          kvdb.KVDb
+	EtcdClient        *clientv3.Client
+	Interval          time.Duration
+	Loc               *time.Location
+	heartbeatInterval time.Duration
+	etcdHelloClient   mypb.EtcdHelloClient
+	jobStatusClient   mypb.JobStatusClient
+	JobManager        *jobManager
+	workerKey         = "workerURI"
 )
 
 func Initial(redisURI, endpoints, schedulerKey, workerURI string, loc *time.Location) error {
@@ -31,7 +32,7 @@ func Initial(redisURI, endpoints, schedulerKey, workerURI string, loc *time.Loca
 	}
 
 	// 连接到etcd
-	EtcdClient, err := myetcd.ConnectToEtcd(endpoints, workerURI, workerURI)
+	EtcdClient, err := myetcd.ConnectToEtcd(endpoints, workerURI, "online")
 	if err != nil {
 		return err
 	}
@@ -65,6 +66,10 @@ func Initial(redisURI, endpoints, schedulerKey, workerURI string, loc *time.Loca
 	if err != nil {
 		return err
 	}
+
+	// 开始向scheduler发送心跳包
+	heartbeatInterval = 2 * time.Second
+	go heartBeat(EtcdClient, "heartbeat/"+workerURI, "online", heartbeatInterval)
 
 	// 获取scheduler的job状态上报服务客户端
 	jobStatusClient, err = jobStatus(schedulerKey)

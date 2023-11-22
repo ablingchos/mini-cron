@@ -1,8 +1,10 @@
-package myetcd
+package scheduler
 
 import (
+	"container/heap"
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,17 +35,17 @@ import (
 // 	// NewWatcher(client, clienID)
 // }
 
-func NewWatcher(client *clientv3.Client, clientURI string) {
+func newWatcher(client *clientv3.Client, clientURI string) *heartbeatWatcher {
 	var wg sync.WaitGroup
 	key := fmt.Sprintf("heartbeat/%s", clientURI)
 
 	wg.Add(2)
-	go newHeartbeatWatcher(client, key, 4*time.Second, &wg)
-	wg.Wait()
+	return newHeartbeatWatcher(client, key, 4*time.Second, &wg)
+	// wg.Wait()
 }
 
 // 心跳观测结构体，包含了客户端信息，key、超时时间、上一次心跳时间、定时器以及一个互斥锁
-type HeartbeatWatcher struct {
+type heartbeatWatcher struct {
 	client        *clientv3.Client
 	key           string
 	timeout       time.Duration
@@ -61,8 +63,7 @@ type HeartbeatWatcher struct {
 // Returns：
 //
 //	none
-func (hw *HeartbeatWatcher) watch(ctx context.Context, key string, wg *sync.WaitGroup) {
-
+func (hw *heartbeatWatcher) watch(ctx context.Context, key string, wg *sync.WaitGroup) {
 	for {
 		mlog.Debug("Getting initial systemopen before watch")
 		resp, err := hw.client.KV.Get(ctx, key)
@@ -77,7 +78,7 @@ func (hw *HeartbeatWatcher) watch(ctx context.Context, key string, wg *sync.Wait
 				hw.updateLastHeartbeat()
 				if string(ev.Kv.Value) == "offline" {
 					mlog.Debug("Watch over")
-					wg.Done()
+					// wg.Done()
 					return
 				}
 			}
@@ -86,7 +87,7 @@ func (hw *HeartbeatWatcher) watch(ctx context.Context, key string, wg *sync.Wait
 }
 
 // 更新最后一次接收到心跳包的时间
-func (hw *HeartbeatWatcher) updateLastHeartbeat() {
+func (hw *heartbeatWatcher) updateLastHeartbeat() {
 	hw.timerLock.Lock()
 	defer hw.timerLock.Unlock()
 
@@ -95,13 +96,28 @@ func (hw *HeartbeatWatcher) updateLastHeartbeat() {
 }
 
 // 定期（timeout间隔）检查是否超时，如果超时就把key所对应的value值更新为offline，关闭定时器并退出函数
-func (hw *HeartbeatWatcher) checkTimeout(wg *sync.WaitGroup) {
+func (hw *heartbeatWatcher) checkTimeout(wg *sync.WaitGroup) {
 	for {
 		<-hw.timer.C
 		hw.timerLock.Lock()
 		defer hw.timerLock.Unlock()
 		if time.Since(hw.lastHeartbeat) >= hw.timeout {
-			mlog.Infof("Heartbeat timeout: %s", hw.key)
+			WorkerManager.mutex.Lock()
+
+			for i, value := range *WorkerManager.workerheap {
+				str := hw.key
+				index := strings.LastIndex(hw.key, "/")
+				str = strings.TrimPrefix(str, str[:index])
+
+				if value.workerURI == str {
+					heap.Remove(WorkerManager.workerheap, i)
+					value.status = "offline"
+					delete(workerClient, value.workerURI)
+					mlog.Infof("worker %s offline, removed from worker list", str)
+				}
+			}
+
+			WorkerManager.mutex.Unlock()
 			_, err := hw.client.Put(context.Background(), hw.key, "offline")
 			if err != nil {
 				mlog.Error("Failed to update key to offline: %v", zap.Error(err))
@@ -110,7 +126,7 @@ func (hw *HeartbeatWatcher) checkTimeout(wg *sync.WaitGroup) {
 			}
 			// 退出定时器
 			hw.timer.Stop()
-			wg.Done()
+			// wg.Done()
 			return
 		}
 		hw.timer.Reset(hw.timeout)
@@ -118,8 +134,8 @@ func (hw *HeartbeatWatcher) checkTimeout(wg *sync.WaitGroup) {
 }
 
 // 创建一个新的心跳观测器，定时器的相关参数由形参决定
-func newHeartbeatWatcher(client *clientv3.Client, key string, timeout time.Duration, wg *sync.WaitGroup) *HeartbeatWatcher {
-	hw := &HeartbeatWatcher{
+func newHeartbeatWatcher(client *clientv3.Client, key string, timeout time.Duration, wg *sync.WaitGroup) *heartbeatWatcher {
+	hw := &heartbeatWatcher{
 		client:        client,
 		key:           key,
 		timeout:       timeout,

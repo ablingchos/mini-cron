@@ -1,4 +1,13 @@
-package myetcd
+package worker
+
+import (
+	"context"
+	"time"
+
+	"git.code.oa.com/red/ms-go/pkg/mlog"
+	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.uber.org/zap"
+)
 
 // func NewWorker(endpoints string) {
 // 	// 建立新的客户端连接
@@ -22,7 +31,19 @@ package myetcd
 // }
 
 // 客户端心跳包发送函数，每隔interval间隔向服务端发送一个心跳包，如果客户端终止了则停止发送
-// func heartBeat(etcdClient *clientv3.Client, key string, value string, interval time.Duration, stopCh <-chan struct{}) {
+func heartBeat(etcdClient *clientv3.Client, key string, value string, interval time.Duration) {
+	timer := time.NewTicker(interval)
+	for range timer.C {
+		_, err := etcdClient.Put(context.Background(), key, value)
+		if err != nil {
+			mlog.Error("heartBeat faile: %v", zap.Error(err))
+		}
+		mlog.Infof("Sent heartbeat: %s", key)
+	}
+}
+
+// graceful shutdown
+// func HeartBeat(etcdClient *clientv3.Client, key string, value string, interval time.Duration, stopCh <-chan struct{}) {
 // 	for {
 // 		select {
 // 		case <-stopCh:

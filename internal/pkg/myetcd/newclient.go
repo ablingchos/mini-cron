@@ -28,13 +28,13 @@ func registGrpcAddr(client *clientv3.Client, key, value string) error {
 	return nil
 }
 
-func ConnectToEtcd(endpoints, key, URI string) (*clientv3.Client, error) {
+func ConnectToEtcd(endpoints, key, value string) (*clientv3.Client, error) {
 	etcdclient, err := newClient([]string{endpoints})
 	if err != nil {
 		return nil, err
 	}
 
-	err = registGrpcAddr(etcdclient, key, URI)
+	err = registGrpcAddr(etcdclient, key, value)
 	if err != nil {
 		return nil, err
 	}
