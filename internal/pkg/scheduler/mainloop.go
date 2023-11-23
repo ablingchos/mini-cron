@@ -20,8 +20,9 @@ var (
 	Interval      time.Duration
 	Loc           *time.Location
 	ScheduleScale time.Duration
+	jobMap        = make(map[string]*JobInfo)
+	jobmu         sync.Mutex
 	workerClient  = make(map[string]mypb.JobSchedulerClient)
-	workerWatcher = make(map[string]*heartbeatWatcher)
 	workermu      sync.Mutex
 )
 

@@ -43,18 +43,7 @@ func workLoop() {
 		for len(*JobManager.jobheap) > 0 && now.After((*JobManager.jobheap)[0].NextExecTime) {
 			// job := heap.Pop(JobManager.jobheap).(*JobInfo)
 			// 取出堆顶元素（即最早执行元素），调整其下一次执行时间后整堆
-			job := (*JobManager.jobheap)[0]
-			if job.Interval == 0 {
-				heap.Pop(JobManager.jobheap)
-			} else {
-				job.NextExecTime = job.NextExecTime.Add(job.Interval)
-				heap.Fix(JobManager.jobheap, 0)
-			}
-
-			jobStatusClient.JobStarted(context.Background(), &mypb.JobStartedRequest{
-				Jobname: job.JobName,
-			})
-			// go execJob(job)
+			job := heap.Pop(JobManager.jobheap).(*JobInfo)
 			jobCh <- job
 		}
 		if len(*JobManager.jobheap) > 0 {
@@ -71,6 +60,43 @@ func workLoop() {
 		}
 	}
 }
+
+// func workLoop() {
+// 	var nextTick <-chan time.Time
+// 	for {
+// 		JobManager.mutex.Lock()
+// 		now := time.Now().In(Loc)
+// 		for len(*JobManager.jobheap) > 0 && now.After((*JobManager.jobheap)[0].NextExecTime) {
+// 			// job := heap.Pop(JobManager.jobheap).(*JobInfo)
+// 			// 取出堆顶元素（即最早执行元素），调整其下一次执行时间后整堆
+// 			job := (*JobManager.jobheap)[0]
+// 			if job.Interval == 0 {
+// 				heap.Pop(JobManager.jobheap)
+// 			} else {
+// 				job.NextExecTime = job.NextExecTime.Add(job.Interval)
+// 				heap.Fix(JobManager.jobheap, 0)
+// 			}
+
+// 			jobStatusClient.JobStarted(context.Background(), &mypb.JobStartedRequest{
+// 				Jobname: job.JobName,
+// 			})
+// 			// go execJob(job)
+// 			jobCh <- job
+// 		}
+// 		if len(*JobManager.jobheap) > 0 {
+// 			nextTick = time.After((*JobManager.jobheap)[0].NextExecTime.Sub(now))
+// 		}
+// 		JobManager.mutex.Unlock()
+
+// 		select {
+// 		case <-nextTick:
+// 		case job := <-newjobCh:
+// 			JobManager.mutex.Lock()
+// 			heap.Push(JobManager.jobheap, job)
+// 			JobManager.mutex.Unlock()
+// 		}
+// 	}
+// }
 
 func execJob() {
 	for job := range jobCh {
@@ -106,6 +132,6 @@ func reportResult() {
 			Jobname:   result[0],
 			Jobresult: result[1],
 		})
-		mlog.Infof("result of %s is: %s", result[0], result[1])
+		mlog.Debugf("result of %s is: %s", result[0], result[1])
 	}
 }

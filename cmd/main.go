@@ -5,7 +5,6 @@ import (
 
 	"git.code.oa.com/red/ms-go/pkg/mlog"
 	"github.com/ablingchos/my-project/internal/pkg/scheduler"
-	"github.com/ablingchos/my-project/internal/pkg/worker"
 	"go.uber.org/zap"
 )
 
@@ -43,7 +42,7 @@ func main() {
 	// 	mlog.Fatal("Failed to start scheduler", zap.Error(err))
 	// }
 
-	go worker.Initial(redisURI, endpoints, schedulerKey, workerURI, loc)
+	// go worker.Initial(redisURI, endpoints, schedulerKey, workerURI, loc)
 	// if err != nil {
 	// 	mlog.Fatal("Failed to start worker", zap.Error(err))
 	// }

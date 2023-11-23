@@ -6,12 +6,13 @@ import (
 )
 
 // 记录job信息的结构
-// 0:待分配，1：已分配未工作，2：已分配已工作，3：已完成
+// 0:待分配，1：已分配未执行，2：已分配正执行，3：已完成
 type JobInfo struct {
 	Jobname      string
 	NextExecTime time.Time
 	Interval     time.Duration
-	JobStatus    int
+	status       int
+	mutex        sync.Mutex
 	// Operation    string
 }
 
@@ -59,6 +60,7 @@ type WorkerInfo struct {
 	jobnumber int
 	jobList   []*JobInfo
 	status    string
+	mutex     sync.Mutex
 }
 
 type workerHeap []*WorkerInfo

@@ -38,7 +38,7 @@ func heartBeat(etcdClient *clientv3.Client, key string, value string, interval t
 		if err != nil {
 			mlog.Error("heartBeat faile: %v", zap.Error(err))
 		}
-		mlog.Infof("Sent heartbeat: %s", key)
+		mlog.Debugf("Sent heartbeat: %s", key)
 	}
 }
 

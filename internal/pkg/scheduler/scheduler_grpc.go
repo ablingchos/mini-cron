@@ -23,12 +23,21 @@ type scheduler struct {
 // var startCh = make(chan []string)
 
 func (s *scheduler) JobStarted(ctx context.Context, req *mypb.JobStartedRequest) (*mypb.JobStartedResponse, error) {
-	mlog.Infof("job %s started\n", req.Jobname)
+	mlog.Debugf("job %s started\n", req.Jobname)
+	// 获取JobInfo
+	jobmu.Lock()
+	job := jobMap[req.Jobname]
+	jobmu.Unlock()
+	// 修改job的状态
+	job.mutex.Lock()
+	job.status = 2
+	job.mutex.Unlock()
+
 	return &mypb.JobStartedResponse{Message: "Received"}, nil
 }
 
 func (s *scheduler) WorkerHello(ctx context.Context, req *mypb.WorkerHelloRequest) (*mypb.WorkerHelloResponse, error) {
-	mlog.Infof("New worker registered, URI: %s", req.WorkerURI)
+	mlog.Debugf("New worker registered, URI: %s", req.WorkerURI)
 	WorkerManager.newWorker <- req.WorkerURI
 	return &mypb.WorkerHelloResponse{Message: "Received"}, nil
 }
@@ -37,7 +46,14 @@ func (s *scheduler) WorkerHello(ctx context.Context, req *mypb.WorkerHelloReques
 var resultCh = make(chan []string)
 
 func (s *scheduler) JobCompleted(ctx context.Context, req *mypb.JobCompletedRequest) (*mypb.JobCompletedResponse, error) {
-	mlog.Infof("job %s completed\n", req.Jobname)
+	mlog.Debugf("job %s completed\n", req.Jobname)
+	jobmu.Lock()
+	job := jobMap[req.Jobname]
+	jobmu.Unlock()
+
+	job.mutex.Lock()
+	job.status = 3
+	job.mutex.Unlock()
 	// 向scheduler.recordresult传递任务的执行结果
 	resultCh <- []string{req.Jobname, req.Jobresult}
 

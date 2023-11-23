@@ -74,7 +74,7 @@ func (hw *heartbeatWatcher) watch(ctx context.Context, key string, wg *sync.Wait
 		rev := resp.Header.Revision
 		for etcdEvent := range hw.client.Watch(ctx, key, clientv3.WithRev(rev+1)) {
 			for _, ev := range etcdEvent.Events {
-				mlog.Infof("Type: %s, key: %s, value: %s", ev.Type, ev.Kv.Key, ev.Kv.Value)
+				mlog.Debugf("Type: %s, key: %s, value: %s", ev.Type, ev.Kv.Key, ev.Kv.Value)
 				hw.updateLastHeartbeat()
 				if string(ev.Kv.Value) == "offline" {
 					mlog.Debug("Watch over")
@@ -103,17 +103,19 @@ func (hw *heartbeatWatcher) checkTimeout(wg *sync.WaitGroup) {
 		defer hw.timerLock.Unlock()
 		if time.Since(hw.lastHeartbeat) >= hw.timeout {
 			WorkerManager.mutex.Lock()
-
 			for i, value := range *WorkerManager.workerheap {
 				str := hw.key
 				index := strings.LastIndex(hw.key, "/")
-				str = strings.TrimPrefix(str, str[:index])
+				str = strings.TrimPrefix(str, str[:index+1])
 
 				if value.workerURI == str {
+					value.mutex.Lock()
 					heap.Remove(WorkerManager.workerheap, i)
 					value.status = "offline"
+					value.mutex.Unlock()
 					delete(workerClient, value.workerURI)
 					mlog.Infof("worker %s offline, removed from worker list", str)
+					break
 				}
 			}
 
@@ -122,7 +124,7 @@ func (hw *heartbeatWatcher) checkTimeout(wg *sync.WaitGroup) {
 			if err != nil {
 				mlog.Error("Failed to update key to offline: %v", zap.Error(err))
 			} else {
-				mlog.Infof("Key updated to offline: %s", hw.key)
+				mlog.Debugf("Key updated to offline: %s", hw.key)
 			}
 			// 退出定时器
 			hw.timer.Stop()
