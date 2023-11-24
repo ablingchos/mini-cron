@@ -26,7 +26,7 @@ var (
 
 // 当有新的worker上线时，在调度器中对其进行注册,并为其开启一个心跳watcher
 func registWorker() {
-	for workerURI := range WorkerManager.newWorker {
+	for workerURI := range newWorker {
 		newWorker := &WorkerInfo{
 			workerURI: workerURI,
 			jobnumber: 0,
@@ -149,7 +149,7 @@ func fetchJob(fetchCh <-chan time.Time) {
 		}
 		// 如果成功取出了任务，通知调度器开始分派
 		if jobNumber > 0 {
-			JobManager.newJob <- struct{}{}
+			newJob <- struct{}{}
 		}
 	}
 }
@@ -235,7 +235,7 @@ func assignJob() {
 		JobManager.mutex.Unlock()
 		select {
 		case <-ticker:
-		case <-JobManager.newJob:
+		case <-newJob:
 		}
 	}
 }
@@ -371,13 +371,13 @@ func processRequest(waitch <-chan struct{}, mu *sync.Mutex, data *string) {
 
 			JobManager.mutex.Lock()
 			heap.Push(JobManager.jobheap, job)
-			JobManager.newJob <- struct{}{}
+			newJob <- struct{}{}
 			JobManager.mutex.Unlock()
 			mlog.Debugf("job %s successufully added to JobManager", jobname)
 		case 2:
 			JobManager.mutex.Lock()
 			heap.Push(JobManager.jobheap, job)
-			JobManager.newJob <- struct{}{}
+			newJob <- struct{}{}
 			JobManager.mutex.Unlock()
 			mlog.Debugf("job %s successufully added to JobManager", jobname)
 		case 3:
@@ -412,31 +412,31 @@ func recordJobInfo(jobCh <-chan map[string]interface{}) {
 	}
 }
 
-// 记录job的执行结果
-func RecordResult(resultCh <-chan []string) {
-	for execResult := range resultCh {
-		jobname := execResult[0]
-		executeResult := execResult[1]
-		jobname = "result/" + jobname
+// 记录job的执行结果（已交给worker来记录）
+// func RecordResult(resultCh <-chan []string) {
+// 	for execResult := range resultCh {
+// 		jobname := execResult[0]
+// 		executeResult := execResult[1]
+// 		jobname = "result/" + jobname
 
-		length, err := DbClient.LLen(context.Background(), executeResult)
-		if err != nil {
-			mlog.Error("", zap.Error(err))
-		}
-		if length == 5 {
-			_, err = DbClient.LPop(context.Background(), executeResult)
-			if err != nil {
-				mlog.Error("", zap.Error(err))
-			}
-		}
-		_, err = DbClient.RPush(context.Background(), jobname, executeResult)
-		if err != nil {
-			mlog.Error("", zap.Error(err))
-		}
+// 		length, err := DbClient.LLen(context.Background(), executeResult)
+// 		if err != nil {
+// 			mlog.Error("", zap.Error(err))
+// 		}
+// 		if length == 5 {
+// 			_, err = DbClient.LPop(context.Background(), executeResult)
+// 			if err != nil {
+// 				mlog.Error("", zap.Error(err))
+// 			}
+// 		}
+// 		_, err = DbClient.RPush(context.Background(), jobname, executeResult)
+// 		if err != nil {
+// 			mlog.Error("", zap.Error(err))
+// 		}
 
-		mlog.Debugf("%s: %s", jobname, executeResult)
-	}
-}
+// 		mlog.Debugf("%s: %s", jobname, executeResult)
+// 	}
+// }
 
 // 取出jobname的最新执行结果
 // func FetchLatestResult(jobname string) (string, error) {

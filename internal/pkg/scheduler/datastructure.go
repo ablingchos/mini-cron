@@ -23,7 +23,6 @@ type jobHeap []*JobInfo
 type jobManager struct {
 	jobheap *jobHeap
 	mutex   sync.Mutex
-	newJob  chan struct{}
 }
 
 func (h jobHeap) Len() int {
@@ -68,7 +67,6 @@ type workerHeap []*WorkerInfo
 type workerManager struct {
 	workerheap *workerHeap
 	mutex      sync.Mutex
-	newWorker  chan string
 }
 
 func (w workerHeap) Len() int {

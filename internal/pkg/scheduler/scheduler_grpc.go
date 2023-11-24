@@ -12,7 +12,7 @@ import (
 )
 
 // 添加新worker
-var addNewWorker = make(chan string)
+// var addNewWorker = make(chan string)
 
 type scheduler struct {
 	mypb.UnimplementedJobStatusServer
@@ -38,12 +38,12 @@ func (s *scheduler) JobStarted(ctx context.Context, req *mypb.JobStartedRequest)
 
 func (s *scheduler) WorkerHello(ctx context.Context, req *mypb.WorkerHelloRequest) (*mypb.WorkerHelloResponse, error) {
 	mlog.Debugf("New worker registered, URI: %s", req.WorkerURI)
-	WorkerManager.newWorker <- req.WorkerURI
+	newWorker <- req.WorkerURI
 	return &mypb.WorkerHelloResponse{Message: "Received"}, nil
 }
 
 // 通知任务执行结果
-var resultCh = make(chan []string)
+// var resultCh = make(chan []string)
 
 func (s *scheduler) JobCompleted(ctx context.Context, req *mypb.JobCompletedRequest) (*mypb.JobCompletedResponse, error) {
 	mlog.Debugf("job %s completed\n", req.Jobname)
@@ -55,7 +55,7 @@ func (s *scheduler) JobCompleted(ctx context.Context, req *mypb.JobCompletedRequ
 	job.status = 3
 	job.mutex.Unlock()
 	// 向scheduler.recordresult传递任务的执行结果
-	resultCh <- []string{req.Jobname, req.Jobresult}
+	// resultCh <- []string{req.Jobname, req.Jobresult}
 
 	return &mypb.JobCompletedResponse{Message: "Received"}, nil
 }
@@ -73,7 +73,7 @@ func startSchedulerGrpc() {
 	mypb.RegisterEtcdHelloServer(svr, &scheduler{})
 
 	mlog.Infof("Scheduler grpc server listening on port 50051")
-	go RecordResult(resultCh)
+	// go RecordResult(resultCh)
 
 	if err := svr.Serve(listner); err != nil {
 		mlog.Fatal("Failed to start scheduler server", zap.Error(err))

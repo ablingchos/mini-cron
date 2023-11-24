@@ -112,7 +112,6 @@ func TestRecordResult(t *testing.T) {
 	result := "OK"
 	resultkey := "result/" + jobname
 
-	go RecordResult(resultCh)
 	resultCh <- []string{jobname, result}
 	// 等待处理结果
 	time.Sleep(1 * time.Second)
@@ -137,7 +136,7 @@ func TestRegistWorker(t *testing.T) {
 	// 设置调度的时间间隔
 	Initial(redisURI, endpoints, schedulerKey, schedulerURI, loc, interval)
 
-	addNewWorker <- "localhost:40051"
+	newWorker <- "localhost:40051"
 
 	// 启动job调度
 	JobManager = &jobManager{

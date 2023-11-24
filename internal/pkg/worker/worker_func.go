@@ -35,31 +35,31 @@ var (
 	resultCh = make(chan []string)
 )
 
-func workLoop() {
-	var nextTick <-chan time.Time
-	for {
-		JobManager.mutex.Lock()
-		now := time.Now().In(Loc)
-		for len(*JobManager.jobheap) > 0 && now.After((*JobManager.jobheap)[0].NextExecTime) {
-			// job := heap.Pop(JobManager.jobheap).(*JobInfo)
-			// 取出堆顶元素（即最早执行元素），调整其下一次执行时间后整堆
-			job := heap.Pop(JobManager.jobheap).(*JobInfo)
-			jobCh <- job
-		}
-		if len(*JobManager.jobheap) > 0 {
-			nextTick = time.After((*JobManager.jobheap)[0].NextExecTime.Sub(now))
-		}
-		JobManager.mutex.Unlock()
+// func workLoop() {
+// 	var nextTick <-chan time.Time
+// 	for {
+// 		JobManager.mutex.Lock()
+// 		now := time.Now().In(Loc)
+// 		for len(*JobManager.jobheap) > 0 && now.After((*JobManager.jobheap)[0].NextExecTime) {
+// 			// job := heap.Pop(JobManager.jobheap).(*JobInfo)
+// 			// 取出堆顶元素（即最早执行元素），调整其下一次执行时间后整堆
+// 			job := heap.Pop(JobManager.jobheap).(*JobInfo)
+// 			jobCh <- job
+// 		}
+// 		if len(*JobManager.jobheap) > 0 {
+// 			nextTick = time.After((*JobManager.jobheap)[0].NextExecTime.Sub(now))
+// 		}
+// 		JobManager.mutex.Unlock()
 
-		select {
-		case <-nextTick:
-		case job := <-newjobCh:
-			JobManager.mutex.Lock()
-			heap.Push(JobManager.jobheap, job)
-			JobManager.mutex.Unlock()
-		}
-	}
-}
+// 		select {
+// 		case <-nextTick:
+// 		case job := <-newjobCh:
+// 			JobManager.mutex.Lock()
+// 			heap.Push(JobManager.jobheap, job)
+// 			JobManager.mutex.Unlock()
+// 		}
+// 	}
+// }
 
 // func workLoop() {
 // 	var nextTick <-chan time.Time
@@ -98,6 +98,36 @@ func workLoop() {
 // 	}
 // }
 
+func workerLoop() {
+	var nextTick <-chan time.Time
+	for {
+		JobManager.mutex.Lock()
+		now := time.Now().In(Loc)
+		for len(*JobManager.jobheap) > 0 && now.After((*JobManager.jobheap)[0].NextExecTime) {
+			// job := heap.Pop(JobManager.jobheap).(*JobInfo)
+			// 取出堆顶元素（即最早执行元素），调整其下一次执行时间后整堆
+			job := heap.Pop(JobManager.jobheap).(*JobInfo)
+			jobCh <- job
+			// 通知scheduler，job开始执行
+			jobStatusClient.JobStarted(context.Background(), &mypb.JobStartedRequest{
+				Jobname: job.JobName,
+			})
+		}
+		if len(*JobManager.jobheap) > 0 {
+			nextTick = time.After((*JobManager.jobheap)[0].NextExecTime.Sub(now))
+		}
+		JobManager.mutex.Unlock()
+
+		select {
+		case <-nextTick:
+		case job := <-newjobCh:
+			JobManager.mutex.Lock()
+			heap.Push(JobManager.jobheap, job)
+			JobManager.mutex.Unlock()
+		}
+	}
+}
+
 func execJob() {
 	for job := range jobCh {
 		parts := strings.Split(job.JobName, "@")
@@ -126,12 +156,44 @@ func execJob() {
 	}
 }
 
-func reportResult() {
+// func reportResult() {
+// 	for result := range resultCh {
+// 		jobStatusClient.JobCompleted(context.TODO(), &mypb.JobCompletedRequest{
+// 			Jobname:   result[0],
+// 			Jobresult: result[1],
+// 		})
+// 		mlog.Debugf("result of %s is: %s", result[0], result[1])
+// 	}
+// }
+
+func recordResult() {
 	for result := range resultCh {
-		jobStatusClient.JobCompleted(context.TODO(), &mypb.JobCompletedRequest{
-			Jobname:   result[0],
-			Jobresult: result[1],
+		jobname := result[0]
+		executeResult := result[1]
+		// 通知scheduler执行成功
+		jobStatusClient.JobCompleted(context.Background(), &mypb.JobCompletedRequest{
+			Jobname:   jobname,
+			Jobresult: executeResult,
 		})
+
+		// 将执行结果写入redis中
+		jobname = "result/" + jobname
+		length, err := DbClient.LLen(context.Background(), executeResult)
+		if err != nil {
+			mlog.Error("", zap.Error(err))
+		}
+		if length == 5 {
+			_, err = DbClient.LPop(context.Background(), executeResult)
+			if err != nil {
+				mlog.Error("", zap.Error(err))
+			}
+		}
+		_, err = DbClient.RPush(context.Background(), jobname, executeResult)
+		if err != nil {
+			mlog.Error("", zap.Error(err))
+		}
+
+		mlog.Debugf("%s: %s", jobname, executeResult)
 		mlog.Debugf("result of %s is: %s", result[0], result[1])
 	}
 }

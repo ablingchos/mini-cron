@@ -81,9 +81,9 @@ func Initial(redisURI, endpoints, schedulerKey, workerURI string, loc *time.Loca
 		jobheap: &jobHeap{},
 	}
 
-	go workLoop()
+	go workerLoop()
 	go execJob()
-	go reportResult()
+	go recordResult()
 
 	return nil
 }

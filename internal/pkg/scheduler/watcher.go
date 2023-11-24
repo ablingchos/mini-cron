@@ -74,7 +74,7 @@ func (hw *heartbeatWatcher) watch(ctx context.Context, key string, wg *sync.Wait
 		rev := resp.Header.Revision
 		for etcdEvent := range hw.client.Watch(ctx, key, clientv3.WithRev(rev+1)) {
 			for _, ev := range etcdEvent.Events {
-				mlog.Debugf("Type: %s, key: %s, value: %s", ev.Type, ev.Kv.Key, ev.Kv.Value)
+				// mlog.Debugf("Type: %s, key: %s, value: %s", ev.Type, ev.Kv.Key, ev.Kv.Value)
 				hw.updateLastHeartbeat()
 				if string(ev.Kv.Value) == "offline" {
 					mlog.Debug("Watch over")

@@ -24,6 +24,8 @@ var (
 	jobmu         sync.Mutex
 	workerClient  = make(map[string]mypb.JobSchedulerClient)
 	workermu      sync.Mutex
+	newJob        = make(chan struct{})
+	newWorker     = make(chan string)
 )
 
 func Initial(redisURI, endpoints, schedulerKey, schedulerURI string, loc *time.Location, interval time.Duration) error {
@@ -56,7 +58,6 @@ func Initial(redisURI, endpoints, schedulerKey, schedulerURI string, loc *time.L
 	// 启动job调度
 	JobManager = &jobManager{
 		jobheap: &jobHeap{},
-		newJob:  make(chan struct{}),
 	}
 	// mlog.Infof("length of JobManager.jobheap: %d", len(*JobManager.jobheap))
 	go startFetch()
@@ -65,7 +66,6 @@ func Initial(redisURI, endpoints, schedulerKey, schedulerURI string, loc *time.L
 	// 启动worker调度
 	WorkerManager = &workerManager{
 		workerheap: &workerHeap{},
-		newWorker:  make(chan string),
 	}
 	go assignJob()
 	// go fetchJob(dbclient, time.Now().Truncate(time.Minute), time.Minute, jobmanager)
