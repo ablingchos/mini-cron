@@ -20,7 +20,7 @@ var (
 	etcdHelloClient   mypb.EtcdHelloClient
 	jobStatusClient   mypb.JobStatusClient
 	JobManager        *jobManager
-	workerKey         = "workerURI"
+	// workerKey         = "workerURI"
 )
 
 func Initial(redisURI, endpoints, schedulerKey, workerURI string, loc *time.Location) error {
@@ -72,7 +72,7 @@ func Initial(redisURI, endpoints, schedulerKey, workerURI string, loc *time.Loca
 	go heartBeat(EtcdClient, "heartbeat/"+workerURI, "online", heartbeatInterval)
 
 	// 获取scheduler的job状态上报服务客户端
-	jobStatusClient, err = jobStatus(schedulerKey)
+	jobStatusClient, err = jobStatus(schedulerURI)
 	if err != nil {
 		return err
 	}

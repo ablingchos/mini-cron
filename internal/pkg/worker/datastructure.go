@@ -6,6 +6,7 @@ import (
 )
 
 type JobInfo struct {
+	jobid        int32
 	JobName      string
 	NextExecTime time.Time
 	Interval     time.Duration
@@ -18,7 +19,7 @@ type jobHeap []*JobInfo
 type jobManager struct {
 	jobheap *jobHeap
 	mutex   sync.Mutex
-	newJob  chan struct{}
+	// newJob  chan struct{}
 }
 
 func (h jobHeap) Len() int {

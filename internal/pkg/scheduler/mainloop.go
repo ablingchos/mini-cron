@@ -12,6 +12,11 @@ import (
 	"go.uber.org/zap"
 )
 
+// type idMap struct {
+// 	job    *JobInfo
+// 	worker *WorkerInfo
+// }
+
 var (
 	DbClient      kvdb.KVDb
 	EtcdClient    *clientv3.Client
@@ -20,8 +25,10 @@ var (
 	Interval      time.Duration
 	Loc           *time.Location
 	ScheduleScale time.Duration
-	jobMap        = make(map[string]*JobInfo)
-	jobmu         sync.Mutex
+	jobNum        int32
+	numLock       sync.Mutex
+	jobMap        = make(map[int32]*JobInfo)
+	mapLock       sync.Mutex
 	workerClient  = make(map[string]mypb.JobSchedulerClient)
 	workermu      sync.Mutex
 	newJob        = make(chan struct{})
@@ -46,6 +53,7 @@ func Initial(redisURI, endpoints, schedulerKey, schedulerURI string, loc *time.L
 
 	// 设置调度的时间间隔
 	Interval = interval
+	prefetch = Interval / 5
 	// 设置时区
 	Loc = loc
 

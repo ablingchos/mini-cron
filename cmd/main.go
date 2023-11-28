@@ -15,8 +15,9 @@ var (
 	schedulerKey = "schedulerURI"
 	schedulerURI = "localhost:50051"
 	workerURI    = "localhost:40051"
-	interval     = 10 * time.Second
-	loc          *time.Location
+	// 每次调度的间隔时间
+	interval = 10 * time.Second
+	loc      *time.Location
 )
 
 func initial() error {

@@ -19,9 +19,12 @@ import (
 
 var (
 	field1    = "method"
-	field2    = "createtime"
+	field2    = "nextexectime"
 	field3    = "Interval"
 	newworker = make(chan struct{})
+	fetchCh   = make(chan time.Time)
+	layout    = "2006-01-02,15:04:05"
+	prefetch  time.Duration
 )
 
 // 当有新的worker上线时，在调度器中对其进行注册,并为其开启一个心跳watcher
@@ -30,8 +33,9 @@ func registWorker() {
 		newWorker := &WorkerInfo{
 			workerURI: workerURI,
 			jobnumber: 0,
-			jobList:   make([]*JobInfo, 0),
+			jobList:   make(map[int]bool),
 			status:    "online",
+			// jobList:   make([]int32, 0),
 		}
 
 		conn, err := grpc.Dial(workerURI, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -58,38 +62,45 @@ func registWorker() {
 
 // 控制取任务
 func startFetch() {
-	fetchCh := make(chan time.Time)
-	go fetchJob(fetchCh)
+	go fetchJob()
 	var timer *time.Ticker
 
-	now := time.Now().In(Loc).Truncate(Interval)
-	nextScheduleTime := now.Add(Interval - Interval/10)
+	now := time.Now().In(Loc)
+	nextScheduleTime := now.Truncate(Interval).Add(Interval - prefetch)
+	// mlog.Debugf("nextScheduleTime: %s, prefetch: %s, Interval: %s", nextScheduleTime.String(), prefetch.String(), Interval.String())
+	// if now.After(nextScheduleTime) {
+	// 	nextScheduleTime = nextScheduleTime.Add(Interval)
+	// }
+
+	// time.Sleep(time.Until(nextScheduleTime))
+	// timer = time.NewTicker(Interval)
+	// fetchCh <- nextScheduleTime
+
 	// 下面的代码功能是用来规划调度器首次调度的开始时间，并从此时间开始初始化定时器
 	// 如果时间用调度尺度换算后大于下一次的调度时间，立即开始调度
 	if nextScheduleTime.Before(now) {
-		fetchCh <- nextScheduleTime
+		fetchCh <- nextScheduleTime.Add(prefetch)
 		nextScheduleTime = nextScheduleTime.Add(Interval)
-		timer = time.NewTicker(Interval)
-	} else {
-		time.Sleep(time.Until(nextScheduleTime))
-		fetchCh <- nextScheduleTime.Add(Interval / 10)
-		nextScheduleTime = nextScheduleTime.Add(Interval)
-		timer = time.NewTicker(Interval)
 	}
+	time.Sleep(time.Until(nextScheduleTime))
+	fetchCh <- nextScheduleTime.Add(prefetch)
+	nextScheduleTime = nextScheduleTime.Add(Interval).Add(prefetch)
+	timer = time.NewTicker(Interval)
 
 	for range timer.C {
-		fetchCh <- nextScheduleTime.Add(Interval / 10)
+		// mlog.Debugf("Fetch once")
+		fetchCh <- nextScheduleTime
 		nextScheduleTime = nextScheduleTime.Add(Interval)
 	}
-
 }
 
 // 每隔Interval时间，从db中取出下一个周期将要执行的任务存入调度器内存中
-func fetchJob(fetchCh <-chan time.Time) {
+func fetchJob() {
 	// 在第一次开始取job前，休眠到begintime-Interval/10的时间，再开始启动取job的工作
 	for scheduleTime := range fetchCh {
 		// 同一个时间段（1分钟）的任务id放在同一个list中，所以直接全部取出
 		// now := time.Now().In(Loc).Truncate(Interval).Add(Interval)
+		mlog.Debugf("Start fetch time %s", scheduleTime.String())
 		resp, err := DbClient.LRange(context.Background(), scheduleTime.String(), 0, -1)
 		if err != nil {
 			mlog.Error("Can't get from db", zap.Error(err))
@@ -123,13 +134,6 @@ func fetchJob(fetchCh <-chan time.Time) {
 				continue
 			}
 
-			// 判断jobname代表的任务是否已经存在
-			// jobmu.Lock()
-			// if _, ok := jobMap[ret[0]]; ok {
-
-			// }
-			// jobmu.Unlock()
-
 			job := &JobInfo{
 				Jobname:      jobname,
 				NextExecTime: nextexectime,
@@ -137,10 +141,16 @@ func fetchJob(fetchCh <-chan time.Time) {
 				// Operation:    ret[],
 			}
 
-			// 添加jobname到*JobInfo的映射
-			jobmu.Lock()
-			jobMap[jobname] = job
-			jobmu.Unlock()
+			numLock.Lock()
+			job.jobid = jobNum
+			jobNum++
+			numLock.Unlock()
+
+			// 添加jobname到[]*JobInfo的映射
+			mapLock.Lock()
+			jobMap[job.jobid] = job
+			mapLock.Unlock()
+			mlog.Debugf("fetch job: %s, nextExecTime: %s, duration: %s", job.Jobname, job.NextExecTime, job.Interval)
 
 			// 将job信息添加到调度表中
 			JobManager.mutex.Lock()
@@ -149,24 +159,34 @@ func fetchJob(fetchCh <-chan time.Time) {
 		}
 		// 如果成功取出了任务，通知调度器开始分派
 		if jobNumber > 0 {
+			// mlog.Debugf("Get %d jobs", jobNumber)
 			newJob <- struct{}{}
 		}
 	}
 }
 
 func jobWatcher(job *JobInfo) {
-	timer := time.NewTicker(job.Interval / 2)
+	// mlog.Debugf("now: %s, nextexectime: %s", time.Now().In(Loc), job.NextExecTime)
+	var interval time.Duration
+	if job.Interval == 0 {
+		interval = Interval
+	} else {
+		interval = job.Interval
+	}
+	timer := time.NewTimer(interval / 2)
+
 	<-timer.C
-	job.mutex.Lock()
-	defer job.mutex.Unlock()
-	if job.status != 4 {
-		mlog.Debugf("job %s didn't receive result", job.Jobname)
+	if job.status != 3 {
+		mlog.Debugf("job %s didn't receive result, begintime: %s, status: %d", job.Jobname, job.NextExecTime.String(), job.status)
 		go dispatch(job)
 		return
 	}
-	// jobmu.Lock()
-	// delete(jobMap, job.Jobname)
-	// jobmu.Unlock()
+
+	// job完成，从任务列表中删除
+	mapLock.Lock()
+	delete(jobMap, job.jobid)
+	mapLock.Unlock()
+
 }
 
 func dispatch(job *JobInfo) {
@@ -176,63 +196,103 @@ func dispatch(job *JobInfo) {
 	worker.jobnumber = worker.jobnumber + 1
 	heap.Fix(WorkerManager.workerheap, 0)
 	req := &mypb.JobInfo{
+		Jobid:        job.jobid,
 		Jobname:      job.Jobname,
 		NextExecTime: job.NextExecTime.String(),
 		Interval:     job.Interval.String(),
 	}
 
 	// 将job添加到worker执行的任务列表中
-	worker.jobList = append(worker.jobList, job)
+	// worker.jobList = append(worker.jobList, job.jobid)
+	worker.jobList[int(job.jobid)] = true
 	WorkerManager.mutex.Unlock()
 
+	// 修改任务状态为0
+	job.status = 1
 	// grpc派发任务
 	go workerClient[worker.workerURI].DispatchJob(context.Background(), &mypb.DispatchJobRequest{
 		JobInfo: req,
 	})
-	mlog.Debugf("job %s assigned to worker %s", job.Jobname, worker.workerURI)
+	mlog.Debugf("job %s assigned to worker %s, jobid: %d", job.Jobname, worker.workerURI, job.jobid)
+	go jobWatcher(job)
 
-	// 修改任务状态为1
-	job.mutex.Lock()
-	job.status = 1
-	job.mutex.Unlock()
 }
 
 // 取worker最小堆的最小元素，即最小负载worker，对其进行任务分派
 func assignJob() {
 	// 等待至少一个worker到达后才能开始分配任务
 	<-newworker
-	mlog.Infof("New worker arrived, start to assign job")
+	mlog.Debugf("New worker arrived, start to assign job")
 	for {
-		JobManager.mutex.Lock()
-		var now time.Time
+		// mlog.Debugf("Start to work")
+		// mlog.Debugf("size of jobheap is: %d", len(*JobManager.jobheap))
 		// for len(*JobManager.jobheap) > 0 && now.After((*JobManager.jobheap)[0].NextExecTime.Add(-Interval/20)) {
-		for len(*JobManager.jobheap) > 0 {
+		for len(*JobManager.jobheap) > 0 && time.Now().In(Loc).After((*JobManager.jobheap)[0].NextExecTime.Add(100*time.Microsecond)) {
 			// job := heap.Pop(JobManager.jobheap)
 			// 获取worker堆的堆顶元素
+			// mlog.Debugf("size of the jobheap is: %d", len(*JobManager.jobheap))
+			WorkerManager.mutex.Lock()
 			if len(*WorkerManager.workerheap) == 0 {
 				mlog.Debugf("No worker joined, scheduler fall asleep")
-				break
+				<-newWorker
+				mlog.Debugf("New worker arrived, start to assign job")
 			}
+			WorkerManager.mutex.Unlock()
+
+			JobManager.mutex.Lock()
 			job := heap.Pop(JobManager.jobheap).(*JobInfo)
 			dispatch(job)
-			go jobWatcher(job)
 
-			job.NextExecTime = job.NextExecTime.Add(job.Interval)
-			switch judgeScheduleTime(job.NextExecTime) {
+			nextTime := job.NextExecTime.Add(job.Interval)
+
+			// 如果job是单次任务，则无需判断其下一次循环时间，直接开始分配下一个任务
+			if job.Interval == 0 {
+				continue
+			}
+
+			switch judgeScheduleTime(nextTime) {
 			case 2:
-				heap.Push(JobManager.jobheap, job)
+				insertJob := &JobInfo{
+					Jobname:      job.Jobname,
+					NextExecTime: nextTime,
+					Interval:     job.Interval,
+				}
+				numLock.Lock()
+				insertJob.jobid = jobNum
+				jobNum++
+				numLock.Unlock()
+
+				mapLock.Lock()
+				jobMap[insertJob.jobid] = insertJob
+				mapLock.Unlock()
+				heap.Push(JobManager.jobheap, insertJob)
+				// mlog.Debugf("%s added to heap again, next time: %s, jobid: %d", job.Jobname, nextTime, job.jobid)
+				// mlog.Debugf("Length of jobheap is: %d", len(*JobManager.jobheap))
 			case 3:
 				var i interface{} = job.Jobname
-				DbClient.RPush(context.Background(), job.NextExecTime.String(), i)
+				var tmp interface{} = nextTime.Truncate(time.Second).Format("2006-01-02 15:04:05 -0700 MST")
+				err := DbClient.HSet(context.Background(), job.Jobname, field2, tmp)
+				if err != nil {
+					mlog.Errorf("Failed to change %s time", job.Jobname, zap.Error(err))
+				}
+				// mlog.Debugf("%s added to redis, next time: %s", job.Jobname, nextTime)
+				_, err = DbClient.RPush(context.Background(), nextTime.Truncate(Interval).String(), i)
+				if err != nil {
+					mlog.Error("Failed to rpush", zap.Error(err))
+				}
 			}
-		}
+			JobManager.mutex.Unlock()
 
-		now = time.Now().In(Loc)
-		ticker := time.After(Interval)
-		if len(*JobManager.jobheap) > 0 {
-			ticker = time.After((*JobManager.jobheap)[0].NextExecTime.Sub(now))
+			// ticker := time.After(Interval)
+			// if len(*JobManager.jobheap) > 0 {
+			// 	ticker = time.After((*JobManager.jobheap)[0].NextExecTime.Sub(time.Now().In(Loc)) - time.Second)
+			// }
+			// <-ticker
 		}
-		JobManager.mutex.Unlock()
+		ticker := time.After(time.Second)
+		if len(*JobManager.jobheap) > 0 {
+			ticker = time.After((*JobManager.jobheap)[0].NextExecTime.Sub(time.Now().In(Loc)) + 200*time.Microsecond)
+		}
 		select {
 		case <-ticker:
 		case <-newJob:
@@ -281,13 +341,13 @@ func judgeScheduleTime(nextExecTime time.Time) int {
 	// 如果job的调度时间离当前时间已经过了Interval，直接丢弃
 	if nextExecTime.Add(Interval).Before(now) {
 		return 0
-	} else if nextExecTime.Before(time.Now().In(Loc)) {
+	} else if nextExecTime.Before(time.Now()) {
 		return 1
-	} else if scheduleTime == now || scheduleTime == now.Add(Interval) {
+	} else if scheduleTime == now || time.Now().In(Loc).After(scheduleTime.Add(-1*prefetch)) {
 		// 如果该job的下一次调度时间段在当前时间段内，或者其所在的时间段的job已经取出了，直接将其加入JobManager中
 		return 2
 	} else {
-		// 该job的下一次调度时间段在当前时间段之外，放入redis中等待调度
+		// 该job的下一次调度时间段在当前需要调度的时间段之外，放入redis中等待调度
 		return 3
 	}
 }
@@ -328,10 +388,10 @@ func processRequest(waitch <-chan struct{}, mu *sync.Mutex, data *string) {
 		nexttime := schedule.Next(randomtime)
 		duration := nexttime.Sub(randomtime)
 
-		layout := "2006-01-02,15:04:05"
 		// 开始时间为空时，默认为time.Now()+duration时刻开始调度
 		if len(parts) == 3 {
-			begintime_str = time.Now().Add(duration).Format(layout)
+			// begintime_str = time.Now().Add(duration).Format(layout)
+			begintime_str = time.Now().Format(layout)
 			method = parts[1]
 			targetURI = parts[2]
 		} else {
@@ -348,14 +408,20 @@ func processRequest(waitch <-chan struct{}, mu *sync.Mutex, data *string) {
 		}
 
 		jobname := method + "@" + targetURI + "@" + duration.String()
-		mlog.Infof("jobname: %s, begintime: %s, now: %s", jobname, begintime.String(), time.Now().Truncate(time.Second).String())
+		mlog.Debugf("jobname: %s, begintime: %s", jobname, begintime.String())
 
 		scheduleTime := begintime.Truncate(Interval)
+
 		job := &JobInfo{
 			Jobname:      jobname,
 			NextExecTime: begintime,
 			Interval:     duration,
 		}
+		numLock.Lock()
+		job.jobid = jobNum
+		jobNum++
+		numLock.Unlock()
+
 		// 如果job的下一次调度时间在当前时刻之前，直接丢弃掉该任务
 		switch judgeScheduleTime(begintime) {
 		case 0:
@@ -363,26 +429,50 @@ func processRequest(waitch <-chan struct{}, mu *sync.Mutex, data *string) {
 			continue
 		case 1:
 			// 立即执行一次
+			mapLock.Lock()
+			jobMap[job.jobid] = job
+			mapLock.Unlock()
 			dispatch(job)
+			// mlog.Debugf("Immediately do job %s", jobname)
 			// 计算任务从开始时间到现在过去了多少个interval
 			pastIntervals := time.Now().In(Loc).Sub(job.NextExecTime) / job.Interval
 			// 计算任务的正确的下一次执行时间
-			job.NextExecTime = job.NextExecTime.Add((pastIntervals + 1) * job.Interval)
+			// job.NextExecTime = job.NextExecTime.Add((pastIntervals + 1) * job.Interval)
+
+			nextjob := &JobInfo{
+				Jobname:      jobname,
+				NextExecTime: job.NextExecTime.Add((pastIntervals + 1) * job.Interval),
+				Interval:     duration,
+			}
+			numLock.Lock()
+			nextjob.jobid = jobNum
+			jobNum++
+			numLock.Unlock()
+			mapLock.Lock()
+			jobMap[nextjob.jobid] = nextjob
+			mapLock.Unlock()
 
 			JobManager.mutex.Lock()
-			heap.Push(JobManager.jobheap, job)
+			heap.Push(JobManager.jobheap, nextjob)
+			mlog.Debugf("Add to jobheap, nextTime: %s", nextjob.NextExecTime.String())
 			newJob <- struct{}{}
 			JobManager.mutex.Unlock()
-			mlog.Debugf("job %s successufully added to JobManager", jobname)
+
 		case 2:
 			JobManager.mutex.Lock()
 			heap.Push(JobManager.jobheap, job)
-			newJob <- struct{}{}
+			mapLock.Lock()
+			jobMap[job.jobid] = job
+			mapLock.Unlock()
 			JobManager.mutex.Unlock()
+			newJob <- struct{}{}
 			mlog.Debugf("job %s successufully added to JobManager", jobname)
 		case 3:
 			var i interface{} = jobname
-			DbClient.RPush(context.Background(), scheduleTime.String(), i)
+			_, err = DbClient.RPush(context.Background(), scheduleTime.String(), i)
+			if err != nil {
+				mlog.Error("Failed to rpush", zap.Error(err))
+			}
 		}
 
 		// 将job加入redis表中

@@ -30,6 +30,7 @@ func parseTime(req *mypb.DispatchJobRequest) {
 		return
 	}
 	newjobCh <- &JobInfo{
+		jobid:        req.JobInfo.Jobid,
 		JobName:      req.JobInfo.Jobname,
 		NextExecTime: nextexectime,
 		Interval:     duration,

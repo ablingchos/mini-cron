@@ -24,7 +24,7 @@ func registGrpcAddr(client *clientv3.Client, key, value string) error {
 		// mlog.Error("Can't regist to etcd", zap.Error(err))
 		return err
 	}
-	mlog.Infof("put: %s, grpcaddr: %s", key, value)
+	mlog.Debugf("put: %s, value: %s", key, value)
 	return nil
 }
 

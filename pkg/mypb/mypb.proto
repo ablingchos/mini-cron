@@ -4,9 +4,10 @@ package mypb;
 option go_package = "github.com/ablingchos/my-project/pkg/mypb";
 
 message JobInfo {
-    string jobname = 1;
-    string next_exec_time = 2;
-    string interval = 3;
+    int32 jobid = 1;
+    string jobname = 2;
+    string next_exec_time = 3;
+    string interval = 4;
 }
 
 message DispatchJobRequest {
@@ -22,7 +23,7 @@ service JobScheduler {
 }
 
 message JobStartedRequest {
-    string jobname = 1;
+    int32 jobid = 1;
 }
 
 message JobStartedResponse {
@@ -30,7 +31,7 @@ message JobStartedResponse {
 }
 
 message JobCompletedRequest {
-    string jobname = 1;
+    int32 jobid = 1;
     string jobresult = 2;
 }
 

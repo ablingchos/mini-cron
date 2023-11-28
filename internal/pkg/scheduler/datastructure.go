@@ -8,11 +8,12 @@ import (
 // 记录job信息的结构
 // 0:待分配，1：已分配未执行，2：已分配正执行，3：已完成
 type JobInfo struct {
+	jobid        int32
 	Jobname      string
 	NextExecTime time.Time
 	Interval     time.Duration
 	status       int
-	mutex        sync.Mutex
+	// mu           sync.Mutex
 	// Operation    string
 }
 
@@ -57,9 +58,10 @@ func (h *jobHeap) Pop() interface{} {
 type WorkerInfo struct {
 	workerURI string
 	jobnumber int
-	jobList   []*JobInfo
+	jobList   map[int]bool
 	status    string
 	mutex     sync.Mutex
+	// jobList   []int32
 }
 
 type workerHeap []*WorkerInfo

@@ -32,8 +32,14 @@ import (
 
 var (
 	jobCh    = make(chan *JobInfo)
-	resultCh = make(chan []string)
+	resultCh = make(chan resultStruct)
 )
+
+type resultStruct struct {
+	jobid     int32
+	jobname   string
+	jobresult string
+}
 
 // func workLoop() {
 // 	var nextTick <-chan time.Time
@@ -110,7 +116,7 @@ func workerLoop() {
 			jobCh <- job
 			// 通知scheduler，job开始执行
 			jobStatusClient.JobStarted(context.Background(), &mypb.JobStartedRequest{
-				Jobname: job.JobName,
+				Jobid: job.jobid,
 			})
 		}
 		if len(*JobManager.jobheap) > 0 {
@@ -148,7 +154,11 @@ func execJob() {
 
 			// mlog.Infof("Successfully get result of job: %s", job.JobName)
 			// resultCh <- []string{job.JobName, string(body)}
-			resultCh <- []string{job.JobName, resp.Status}
+			resultCh <- resultStruct{
+				jobid:     job.jobid,
+				jobname:   job.JobName,
+				jobresult: resp.Status,
+			}
 		default:
 			mlog.Error("Func incomplete")
 			// resultCh <- []string{job.JobName, "error"}
@@ -168,32 +178,31 @@ func execJob() {
 
 func recordResult() {
 	for result := range resultCh {
-		jobname := result[0]
-		executeResult := result[1]
 		// 通知scheduler执行成功
 		jobStatusClient.JobCompleted(context.Background(), &mypb.JobCompletedRequest{
-			Jobname:   jobname,
-			Jobresult: executeResult,
+			Jobid:     result.jobid,
+			Jobresult: result.jobresult,
 		})
 
 		// 将执行结果写入redis中
-		jobname = "result/" + jobname
-		length, err := DbClient.LLen(context.Background(), executeResult)
+		jobname := "result/" + result.jobname
+		// 判断记录的结果是否大于5条
+		length, err := DbClient.LLen(context.Background(), jobname)
 		if err != nil {
 			mlog.Error("", zap.Error(err))
 		}
 		if length == 5 {
-			_, err = DbClient.LPop(context.Background(), executeResult)
+			_, err = DbClient.LPop(context.Background(), jobname)
 			if err != nil {
 				mlog.Error("", zap.Error(err))
 			}
 		}
-		_, err = DbClient.RPush(context.Background(), jobname, executeResult)
+		_, err = DbClient.RPush(context.Background(), jobname, result.jobresult)
 		if err != nil {
 			mlog.Error("", zap.Error(err))
 		}
 
-		mlog.Debugf("%s: %s", jobname, executeResult)
-		mlog.Debugf("result of %s is: %s", result[0], result[1])
+		// mlog.Debugf("%s: %s", jobname, executeResult)
+		mlog.Debugf("result of %s is: %s", result.jobname, result.jobresult)
 	}
 }
