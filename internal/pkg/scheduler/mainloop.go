@@ -12,10 +12,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// type idMap struct {
-// 	job    *JobInfo
-// 	worker *WorkerInfo
-// }
+type idMap struct {
+	job    *JobInfo
+	worker *WorkerInfo
+}
 
 var (
 	DbClient      kvdb.KVDb
@@ -27,7 +27,7 @@ var (
 	ScheduleScale time.Duration
 	jobNum        int32
 	numLock       sync.Mutex
-	jobMap        = make(map[int32]*JobInfo)
+	jobMap        = make(map[int32]*idMap)
 	mapLock       sync.Mutex
 	workerClient  = make(map[string]mypb.JobSchedulerClient)
 	workermu      sync.Mutex

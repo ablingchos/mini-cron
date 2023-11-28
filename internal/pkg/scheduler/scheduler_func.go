@@ -33,7 +33,7 @@ func registWorker() {
 		newWorker := &WorkerInfo{
 			workerURI: workerURI,
 			jobnumber: 0,
-			jobList:   make(map[int]bool),
+			jobList:   make(map[int32]bool),
 			status:    "online",
 			// jobList:   make([]int32, 0),
 		}
@@ -148,7 +148,9 @@ func fetchJob() {
 
 			// 添加jobname到[]*JobInfo的映射
 			mapLock.Lock()
-			jobMap[job.jobid] = job
+			jobMap[job.jobid] = &idMap{
+				job: job,
+			}
 			mapLock.Unlock()
 			mlog.Debugf("fetch job: %s, nextExecTime: %s, duration: %s", job.Jobname, job.NextExecTime, job.Interval)
 
@@ -184,6 +186,10 @@ func jobWatcher(job *JobInfo) {
 
 	// job完成，从任务列表中删除
 	mapLock.Lock()
+	worker := jobMap[job.jobid].worker
+	worker.mutex.Lock()
+	delete(worker.jobList, job.jobid)
+	worker.mutex.Unlock()
 	delete(jobMap, job.jobid)
 	mapLock.Unlock()
 
@@ -204,8 +210,11 @@ func dispatch(job *JobInfo) {
 
 	// 将job添加到worker执行的任务列表中
 	// worker.jobList = append(worker.jobList, job.jobid)
-	worker.jobList[int(job.jobid)] = true
+	worker.jobList[job.jobid] = true
 	WorkerManager.mutex.Unlock()
+	mapLock.Lock()
+	jobMap[job.jobid].worker = worker
+	mapLock.Unlock()
 
 	// 修改任务状态为0
 	job.status = 1
@@ -263,7 +272,9 @@ func assignJob() {
 				numLock.Unlock()
 
 				mapLock.Lock()
-				jobMap[insertJob.jobid] = insertJob
+				jobMap[insertJob.jobid] = &idMap{
+					job: insertJob,
+				}
 				mapLock.Unlock()
 				heap.Push(JobManager.jobheap, insertJob)
 				// mlog.Debugf("%s added to heap again, next time: %s, jobid: %d", job.Jobname, nextTime, job.jobid)
@@ -430,7 +441,9 @@ func processRequest(waitch <-chan struct{}, mu *sync.Mutex, data *string) {
 		case 1:
 			// 立即执行一次
 			mapLock.Lock()
-			jobMap[job.jobid] = job
+			jobMap[job.jobid] = &idMap{
+				job: job,
+			}
 			mapLock.Unlock()
 			dispatch(job)
 			// mlog.Debugf("Immediately do job %s", jobname)
@@ -449,7 +462,9 @@ func processRequest(waitch <-chan struct{}, mu *sync.Mutex, data *string) {
 			jobNum++
 			numLock.Unlock()
 			mapLock.Lock()
-			jobMap[nextjob.jobid] = nextjob
+			jobMap[nextjob.jobid] = &idMap{
+				job: nextjob,
+			}
 			mapLock.Unlock()
 
 			JobManager.mutex.Lock()
@@ -462,7 +477,9 @@ func processRequest(waitch <-chan struct{}, mu *sync.Mutex, data *string) {
 			JobManager.mutex.Lock()
 			heap.Push(JobManager.jobheap, job)
 			mapLock.Lock()
-			jobMap[job.jobid] = job
+			jobMap[job.jobid] = &idMap{
+				job: job,
+			}
 			mapLock.Unlock()
 			JobManager.mutex.Unlock()
 			newJob <- struct{}{}

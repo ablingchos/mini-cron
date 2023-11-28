@@ -58,7 +58,7 @@ func (h *jobHeap) Pop() interface{} {
 type WorkerInfo struct {
 	workerURI string
 	jobnumber int
-	jobList   map[int]bool
+	jobList   map[int32]bool
 	status    string
 	mutex     sync.Mutex
 	// jobList   []int32
