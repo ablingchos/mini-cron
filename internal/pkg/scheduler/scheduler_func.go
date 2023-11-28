@@ -100,7 +100,7 @@ func fetchJob() {
 	for scheduleTime := range fetchCh {
 		// 同一个时间段（1分钟）的任务id放在同一个list中，所以直接全部取出
 		// now := time.Now().In(Loc).Truncate(Interval).Add(Interval)
-		mlog.Debugf("Start fetch time %s", scheduleTime.String())
+		// mlog.Debugf("Start fetch time %s", scheduleTime.String())
 		resp, err := DbClient.LRange(context.Background(), scheduleTime.String(), 0, -1)
 		if err != nil {
 			mlog.Error("Can't get from db", zap.Error(err))
@@ -152,7 +152,7 @@ func fetchJob() {
 				job: job,
 			}
 			mapLock.Unlock()
-			mlog.Debugf("fetch job: %s, nextExecTime: %s, duration: %s", job.Jobname, job.NextExecTime, job.Interval)
+			//  mlog.Debugf("fetch job: %s, nextExecTime: %s, duration: %s", job.Jobname, job.NextExecTime, job.Interval)
 
 			// 将job信息添加到调度表中
 			JobManager.mutex.Lock()
@@ -165,6 +165,17 @@ func fetchJob() {
 			newJob <- struct{}{}
 		}
 	}
+}
+
+func deleteJob(job *JobInfo) {
+	mapLock.Lock()
+	worker := jobMap[job.jobid].worker
+	worker.mutex.Lock()
+	worker.jobnumber--
+	delete(worker.jobList, job.jobid)
+	worker.mutex.Unlock()
+	delete(jobMap, job.jobid)
+	mapLock.Unlock()
 }
 
 func jobWatcher(job *JobInfo) {
@@ -180,19 +191,18 @@ func jobWatcher(job *JobInfo) {
 	<-timer.C
 	if job.status != 3 {
 		mlog.Debugf("job %s didn't receive result, begintime: %s, status: %d", job.Jobname, job.NextExecTime.String(), job.status)
-		go dispatch(job)
-		return
+		numLock.Lock()
+		num := jobNum
+		jobNum++
+		numLock.Unlock()
+		go dispatch(&JobInfo{
+			jobid:        num,
+			Jobname:      job.Jobname,
+			NextExecTime: time.Now().In(Loc),
+			Interval:     job.Interval,
+		})
 	}
-
-	// job完成，从任务列表中删除
-	mapLock.Lock()
-	worker := jobMap[job.jobid].worker
-	worker.mutex.Lock()
-	delete(worker.jobList, job.jobid)
-	worker.mutex.Unlock()
-	delete(jobMap, job.jobid)
-	mapLock.Unlock()
-
+	go deleteJob(job)
 }
 
 func dispatch(job *JobInfo) {
@@ -210,7 +220,9 @@ func dispatch(job *JobInfo) {
 
 	// 将job添加到worker执行的任务列表中
 	// worker.jobList = append(worker.jobList, job.jobid)
+	worker.mutex.Lock()
 	worker.jobList[job.jobid] = true
+	worker.mutex.Unlock()
 	WorkerManager.mutex.Unlock()
 	mapLock.Lock()
 	jobMap[job.jobid].worker = worker
@@ -300,7 +312,7 @@ func assignJob() {
 			// }
 			// <-ticker
 		}
-		ticker := time.After(time.Second)
+		ticker := time.After(200 * time.Microsecond)
 		if len(*JobManager.jobheap) > 0 {
 			ticker = time.After((*JobManager.jobheap)[0].NextExecTime.Sub(time.Now().In(Loc)) + 200*time.Microsecond)
 		}

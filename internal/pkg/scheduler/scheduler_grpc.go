@@ -26,6 +26,11 @@ func (s *scheduler) JobStarted(ctx context.Context, req *mypb.JobStartedRequest)
 	// mlog.Debugf("job %s started\n", req.Jobname)
 	// 获取JobInfo
 	mapLock.Lock()
+	if _, ok := jobMap[req.Jobid]; !ok {
+		mlog.Errorf("Job %d deleted", req.Jobid)
+		mapLock.Unlock()
+		return &mypb.JobStartedResponse{Message: "Error"}, nil
+	}
 	job := jobMap[req.Jobid].job
 	mapLock.Unlock()
 	// 修改job的状态
@@ -45,6 +50,11 @@ func (s *scheduler) WorkerHello(ctx context.Context, req *mypb.WorkerHelloReques
 
 func (s *scheduler) JobCompleted(ctx context.Context, req *mypb.JobCompletedRequest) (*mypb.JobCompletedResponse, error) {
 	mapLock.Lock()
+	if _, ok := jobMap[req.Jobid]; !ok {
+		mlog.Errorf("Job %d was deleted", req.Jobid)
+		mapLock.Unlock()
+		return &mypb.JobCompletedResponse{Message: "Error"}, nil
+	}
 	job := jobMap[req.Jobid].job
 	mapLock.Unlock()
 	mlog.Debugf("job %s completed, id: %d", job.Jobname, job.jobid)

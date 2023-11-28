@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"container/heap"
 	"context"
 	"net"
 	"time"
@@ -16,9 +17,9 @@ type worker struct {
 	mypb.UnimplementedJobSchedulerServer
 }
 
-var newjobCh = make(chan *JobInfo)
+var newjobCh = make(chan struct{})
 
-func parseTime(req *mypb.DispatchJobRequest) {
+func parseJob(req *mypb.DispatchJobRequest) {
 	nextexectime, err := time.ParseInLocation("2006-01-02 15:04:05 -0700 MST", req.JobInfo.NextExecTime, Loc)
 	if err != nil {
 		mlog.Error("Failed to parse time", zap.Error(err))
@@ -29,17 +30,22 @@ func parseTime(req *mypb.DispatchJobRequest) {
 		mlog.Infof("Failed to parse duration", zap.Error(err))
 		return
 	}
-	newjobCh <- &JobInfo{
+
+	JobManager.mutex.Lock()
+	heap.Push(JobManager.jobheap, &JobInfo{
 		jobid:        req.JobInfo.Jobid,
 		JobName:      req.JobInfo.Jobname,
 		NextExecTime: nextexectime,
 		Interval:     duration,
-	}
+	})
+	JobManager.mutex.Unlock()
+
+	newjobCh <- struct{}{}
 }
 
 func (w *worker) DispatchJob(ctx context.Context, req *mypb.DispatchJobRequest) (*mypb.DispatchJobResponse, error) {
 	mlog.Infof("job %s received, begintime: %s", req.JobInfo.Jobname, req.JobInfo.NextExecTime)
-	go parseTime(req)
+	go parseJob(req)
 	return &mypb.DispatchJobResponse{Message: "Job received"}, nil
 }
 

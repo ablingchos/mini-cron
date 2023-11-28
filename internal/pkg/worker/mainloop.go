@@ -20,6 +20,7 @@ var (
 	etcdHelloClient   mypb.EtcdHelloClient
 	jobStatusClient   mypb.JobStatusClient
 	JobManager        *jobManager
+	// jobMap            = make(map[int]*JobInfo)
 	// workerKey         = "workerURI"
 )
 
@@ -83,7 +84,6 @@ func Initial(redisURI, endpoints, schedulerKey, workerURI string, loc *time.Loca
 
 	go workerLoop()
 	go execJob()
-	go recordResult()
 
 	return nil
 }
