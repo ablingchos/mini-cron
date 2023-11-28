@@ -210,6 +210,7 @@ func dispatch(job *JobInfo) {
 	WorkerManager.mutex.Lock()
 	worker := (*WorkerManager.workerheap)[0]
 	worker.jobnumber = worker.jobnumber + 1
+	mlog.Debugf("workload of %s: %d", worker.workerURI, worker.jobnumber)
 	heap.Fix(WorkerManager.workerheap, 0)
 	req := &mypb.JobInfo{
 		Jobid:        job.jobid,
@@ -228,7 +229,7 @@ func dispatch(job *JobInfo) {
 	jobMap[job.jobid].worker = worker
 	mapLock.Unlock()
 
-	// 修改任务状态为0
+	// 修改任务状态为1
 	job.status = 1
 	// grpc派发任务
 	go workerClient[worker.workerURI].DispatchJob(context.Background(), &mypb.DispatchJobRequest{
@@ -403,7 +404,10 @@ func processRequest(waitch <-chan struct{}, mu *sync.Mutex, data *string) {
 		schedule, err := cron.Parse(cronexpr)
 		if err != nil {
 			mlog.Error("Failed to parse cronexpr", zap.Error(err))
-			return
+			mu.Lock()
+			*data = ""
+			mu.Unlock()
+			continue
 		}
 
 		Loc, _ := time.LoadLocation("Asia/Shanghai")
