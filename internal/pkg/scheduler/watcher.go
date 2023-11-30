@@ -109,10 +109,7 @@ func (hw *heartbeatWatcher) checkTimeout(wg *sync.WaitGroup) {
 				str = strings.TrimPrefix(str, str[:index+1])
 
 				if value.workerURI == str {
-					value.mutex.Lock()
 					heap.Remove(WorkerManager.workerheap, i)
-					value.status = "offline"
-					value.mutex.Unlock()
 					delete(workerClient, value.workerURI)
 					mlog.Infof("worker %s offline, removed from worker list", str)
 					break

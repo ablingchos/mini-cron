@@ -1,10 +1,13 @@
 package main
 
 import (
+	"net/http"
 	"time"
 
 	"git.code.oa.com/red/ms-go/pkg/mlog"
 	"github.com/ablingchos/my-project/internal/pkg/scheduler"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
 
@@ -14,11 +17,42 @@ var (
 	endpoints    = "http://localhost:2379"
 	schedulerKey = "schedulerURI"
 	schedulerURI = "localhost:50051"
-	workerURI    = "localhost:40051"
+	workerURI1   = "localhost:40051"
+	workerURI2   = "localhost:30051"
+	workerURI3   = "localhost:20051"
 	// 每次调度的间隔时间
 	interval = 10 * time.Second
 	loc      *time.Location
 )
+
+var (
+	cpuUsageCollector = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "cpu_usage",
+		Help: "The current CPU usage.",
+	})
+
+	memoryUsageCollector = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "memory_usage",
+		Help: "The current memory usage.",
+	})
+
+	diskUsageCollector = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "disk_usage",
+		Help: "The current disk usage.",
+	})
+)
+
+func init() {
+	http.Handle("/metrics", promhttp.Handler())
+	prometheus.MustRegister(cpuUsageCollector)
+	prometheus.MustRegister(memoryUsageCollector)
+	prometheus.MustRegister(diskUsageCollector)
+	go func() {
+		if err := http.ListenAndServe("localhost:3001", nil); err != nil {
+			mlog.Errorf("Failed to start server", zap.Error(err))
+		}
+	}()
+}
 
 func initial() error {
 	// 设置时区
@@ -32,7 +66,6 @@ func initial() error {
 }
 
 func main() {
-
 	err := initial()
 	if err != nil {
 		mlog.Fatal("Failed to set time zone!", zap.Error(err))
@@ -43,7 +76,7 @@ func main() {
 	// 	mlog.Fatal("Failed to start scheduler", zap.Error(err))
 	// }
 
-	// go worker.Initial(redisURI, endpoints, schedulerKey, workerURI, loc)
+	// go worker.Initial(redisURI, endpoints, schedulerKey, workerURI1, loc)
 	// if err != nil {
 	// 	mlog.Fatal("Failed to start worker", zap.Error(err))
 	// }

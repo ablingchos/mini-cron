@@ -11,16 +11,17 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// 添加新worker
-// var addNewWorker = make(chan string)
-
 type scheduler struct {
 	mypb.UnimplementedJobStatusServer
 	mypb.UnimplementedEtcdHelloServer
 }
 
-// 通知任务开始执行
-// var startCh = make(chan []string)
+// worker注册
+func (s *scheduler) WorkerHello(ctx context.Context, req *mypb.WorkerHelloRequest) (*mypb.WorkerHelloResponse, error) {
+	mlog.Infof("New worker registered, URI: %s", req.WorkerURI)
+	newWorker <- req.WorkerURI
+	return &mypb.WorkerHelloResponse{Message: "Received"}, nil
+}
 
 func (s *scheduler) JobStarted(ctx context.Context, req *mypb.JobStartedRequest) (*mypb.JobStartedResponse, error) {
 	// mlog.Debugf("job %s started\n", req.Jobname)
@@ -34,19 +35,13 @@ func (s *scheduler) JobStarted(ctx context.Context, req *mypb.JobStartedRequest)
 	job := jobMap[req.Jobid].job
 	mapLock.Unlock()
 	// 修改job的状态
+	job.mu.Lock()
 	job.status = 2
+	job.mu.Unlock()
 
+	mlog.Debugf("job %d started", job.jobid)
 	return &mypb.JobStartedResponse{Message: "Received"}, nil
 }
-
-func (s *scheduler) WorkerHello(ctx context.Context, req *mypb.WorkerHelloRequest) (*mypb.WorkerHelloResponse, error) {
-	mlog.Infof("New worker registered, URI: %s", req.WorkerURI)
-	newWorker <- req.WorkerURI
-	return &mypb.WorkerHelloResponse{Message: "Received"}, nil
-}
-
-// 通知任务执行结果
-// var resultCh = make(chan []string)
 
 func (s *scheduler) JobCompleted(ctx context.Context, req *mypb.JobCompletedRequest) (*mypb.JobCompletedResponse, error) {
 	mapLock.Lock()
@@ -57,9 +52,11 @@ func (s *scheduler) JobCompleted(ctx context.Context, req *mypb.JobCompletedRequ
 	}
 	job := jobMap[req.Jobid].job
 	mapLock.Unlock()
-	mlog.Debugf("job %s completed, id: %d", job.Jobname, job.jobid)
 
+	job.mu.Lock()
 	job.status = 3
+	job.mu.Unlock()
+	mlog.Debugf("job %s completed, id: %d, status: %d", job.Jobname, job.jobid, job.status)
 	// 向scheduler.recordresult传递任务的执行结果
 	// resultCh <- []string{req.Jobname, req.Jobresult}
 
@@ -84,7 +81,6 @@ func startSchedulerGrpc() {
 	if err := svr.Serve(listner); err != nil {
 		mlog.Fatal("Failed to start scheduler server", zap.Error(err))
 	}
-
 }
 
 func GrpcSchedulerClient(workerKey, workerURI string) (mypb.EtcdHelloClient, error) {

@@ -13,7 +13,8 @@ type JobInfo struct {
 	NextExecTime time.Time
 	Interval     time.Duration
 	status       int
-	// mu           sync.Mutex
+	reDispatch   bool
+	mu           sync.Mutex
 	// Operation    string
 }
 
@@ -59,7 +60,6 @@ type WorkerInfo struct {
 	workerURI string
 	jobnumber int
 	jobList   map[int32]bool
-	status    string
 	mutex     sync.Mutex
 	// jobList   []int32
 }

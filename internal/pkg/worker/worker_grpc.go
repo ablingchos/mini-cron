@@ -39,18 +39,19 @@ func parseJob(req *mypb.DispatchJobRequest) {
 		Interval:     duration,
 	})
 	JobManager.mutex.Unlock()
+	mlog.Debugf("job %s received, begintime: %s, jobid: %d", req.JobInfo.Jobname, nextexectime.String(), req.JobInfo.Jobid)
 
 	newjobCh <- struct{}{}
 }
 
 func (w *worker) DispatchJob(ctx context.Context, req *mypb.DispatchJobRequest) (*mypb.DispatchJobResponse, error) {
-	mlog.Infof("job %s received, begintime: %s", req.JobInfo.Jobname, req.JobInfo.NextExecTime)
-	go parseJob(req)
+	parseJob(req)
 	return &mypb.DispatchJobResponse{Message: "Job received"}, nil
 }
 
 func StartWorkerGrpc() {
-	listener, err := net.Listen("tcp", ":40051")
+
+	listener, err := net.Listen("tcp", port)
 	if err != nil {
 		mlog.Error("Failed to listen", zap.Error(err))
 		return
@@ -58,7 +59,7 @@ func StartWorkerGrpc() {
 
 	svr := grpc.NewServer()
 	mypb.RegisterJobSchedulerServer(svr, &worker{})
-	mlog.Infof("Grpc server listening on port 40051")
+	mlog.Infof("Grpc server listening on port %s", port)
 
 	if err := svr.Serve(listener); err != nil {
 		mlog.Fatal("Failed to start worker server", zap.Error(err))

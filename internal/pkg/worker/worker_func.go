@@ -3,9 +3,6 @@ package worker
 import (
 	"container/heap"
 	"context"
-	"net/http"
-	"strings"
-	"time"
 
 	"git.code.oa.com/red/ms-go/pkg/mlog"
 	"github.com/ablingchos/my-project/pkg/mypb"
@@ -30,10 +27,10 @@ import (
 // 	}
 // }
 
-var (
-	jobCh = make(chan *JobInfo)
-	// resultCh = make(chan resultStruct)
-)
+// var (
+// 	jobCh = make(chan *JobInfo)
+// 	resultCh = make(chan resultStruct)
+// )
 
 // type resultStruct struct {
 // 	jobid     int32
@@ -106,63 +103,70 @@ var (
 
 func workerLoop() {
 	for {
-		for len(*JobManager.jobheap) > 0 && time.Now().In(Loc).After((*JobManager.jobheap)[0].NextExecTime) {
+		// for len(*JobManager.jobheap) > 0 && time.Now().In(Loc).After((*JobManager.jobheap)[0].NextExecTime) {
+		for len(*JobManager.jobheap) > 0 {
 			JobManager.mutex.Lock()
 			// job := heap.Pop(JobManager.jobheap).(*JobInfo)
 			// 取出堆顶元素（即最早执行元素），调整其下一次执行时间后整堆
 			job := heap.Pop(JobManager.jobheap).(*JobInfo)
 			JobManager.mutex.Unlock()
-			jobCh <- job
-			// 通知scheduler，job开始执行
 			jobStatusClient.JobStarted(context.Background(), &mypb.JobStartedRequest{
 				Jobid: job.jobid,
 			})
+			go execJob(job)
+			// 通知scheduler，job开始执行
 		}
 
-		ticker := time.After(300 * time.Microsecond)
-		if len(*JobManager.jobheap) > 0 {
-			ticker = time.After((*JobManager.jobheap)[0].NextExecTime.Sub(time.Now().In(Loc)))
-		}
-		select {
-		case <-ticker:
-		case <-newjobCh:
-		}
+		<-newjobCh
+		// ticker := time.After(100 * time.Microsecond)
+		// now := time.Now().In(Loc)
+		// if len(*JobManager.jobheap) > 0 {
+		// 	// 如果当前时间在队首job下次执行时间的100ms之前，立即执行，否则等待到100ms前
+		// 	if now.Before((*JobManager.jobheap)[0].NextExecTime.Add(-100 * time.Microsecond)) {
+		// 		ticker = time.After(0)
+		// 	} else {
+		// 		duration := (*JobManager.jobheap)[0].NextExecTime.Sub(now)
+		// 		ticker = time.After(duration - 100*time.Microsecond)
+		// 	}
+		// }
+		// select {
+		// case <-ticker:
+		// case <-newjobCh:
+		// }
 	}
 }
 
-func execJob() {
-	for job := range jobCh {
-		parts := strings.Split(job.JobName, "@")
-		uri := "http://" + parts[1]
-		var resp *http.Response
-		switch parts[0] {
-		case "get":
-			var err error
-			resp, err = http.Get(uri)
-			if err != nil {
-				mlog.Errorf("job: %s, failed to get HttpResponse", job.JobName, zap.Error(err))
-				// resultCh <- []string{job.JobName, "error"}
-			}
-			// defer resp.Body.Close()
-			// body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				mlog.Errorf("job: %s, failed to read HttpResponse", job.JobName, zap.Error(err))
-				// resultCh <- []string{job.JobName, "error"}
-			}
+func execJob(job *JobInfo) {
+	// parts := strings.Split(job.JobName, "@")
+	// uri := "http://" + parts[1]
+	// var resp *http.Response
+	// switch parts[0] {
+	// case "get":
+	// 	var err error
+	// 	resp, err = http.Get(uri)
+	// 	if err != nil {
+	// 		mlog.Errorf("job: %s, failed to get HttpResponse", job.JobName, zap.Error(err))
+	// 		// resultCh <- []string{job.JobName, "error"}
+	// 	}
+	// 	// defer resp.Body.Close()
+	// 	// body, err := io.ReadAll(resp.Body)
+	// 	if err != nil {
+	// 		mlog.Errorf("job: %s, failed to read HttpResponse", job.JobName, zap.Error(err))
+	// 		// resultCh <- []string{job.JobName, "error"}
+	// 	}
 
-			// mlog.Infof("Successfully get result of job: %s", job.JobName)
-			// resultCh <- []string{job.JobName, string(body)}
-			// resultCh <- resultStruct{
-			// 	jobid:     job.jobid,
-			// 	jobname:   job.JobName,
-			// 	jobresult: resp.Status,
-			// }
-		default:
-			mlog.Error("Func incomplete")
-			// resultCh <- []string{job.JobName, "error"}
-		}
-		go recordResult(job.jobid, job.JobName, resp.Status)
-	}
+	// 	// mlog.Infof("Successfully get result of job: %s", job.JobName)
+	// 	// resultCh <- []string{job.JobName, string(body)}
+	// 	// resultCh <- resultStruct{
+	// 	// 	jobid:     job.jobid,
+	// 	// 	jobname:   job.JobName,
+	// 	// 	jobresult: resp.Status,
+	// 	// }
+	// default:
+	// 	mlog.Error("Func incomplete")
+	// 	// resultCh <- []string{job.JobName, "error"}
+	// }
+	go recordResult(job.jobid, job.JobName, "200 OK")
 }
 
 // func reportResult() {
@@ -181,6 +185,7 @@ func recordResult(jobid int32, jobname, jobresult string) {
 		Jobresult: jobresult,
 	})
 
+	mlog.Debugf("result of %s is: %s, id: %d", jobname, jobresult, jobid)
 	// 将执行结果写入redis中
 	jobname = "result/" + jobname
 	// 判断记录的结果是否大于5条
@@ -200,7 +205,6 @@ func recordResult(jobid int32, jobname, jobresult string) {
 	}
 
 	// mlog.Debugf("%s: %s", jobname, executeResult)
-	mlog.Debugf("result of %s is: %s", jobname, jobresult)
 	// for result := range resultCh {
 	// 	// 通知scheduler执行成功
 	// 	jobStatusClient.JobCompleted(context.Background(), &mypb.JobCompletedRequest{

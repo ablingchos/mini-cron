@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"git.code.oa.com/red/ms-go/pkg/mlog"
@@ -20,11 +21,18 @@ var (
 	etcdHelloClient   mypb.EtcdHelloClient
 	jobStatusClient   mypb.JobStatusClient
 	JobManager        *jobManager
+	// ip                string
+	port string
 	// jobMap            = make(map[int]*JobInfo)
 	// workerKey         = "workerURI"
 )
 
 func Initial(redisURI, endpoints, schedulerKey, workerURI string, loc *time.Location) error {
+
+	idx := strings.LastIndex(workerURI, ":")
+	// ip = workerURI[:idx-1]
+	port = workerURI[idx:]
+
 	// 连接到redis
 	DbClient = &kvdb.RedisDB{}
 	err := DbClient.Connect(redisURI)
@@ -83,7 +91,6 @@ func Initial(redisURI, endpoints, schedulerKey, workerURI string, loc *time.Loca
 	}
 
 	go workerLoop()
-	go execJob()
 
 	return nil
 }

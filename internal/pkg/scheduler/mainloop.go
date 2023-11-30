@@ -4,6 +4,9 @@ import (
 	"sync"
 	"time"
 
+	"net/http"
+	_ "net/http/pprof"
+
 	"git.code.oa.com/red/ms-go/pkg/mlog"
 	"github.com/ablingchos/my-project/internal/pkg/kvdb"
 	"github.com/ablingchos/my-project/internal/pkg/myetcd"
@@ -59,6 +62,11 @@ func Initial(redisURI, endpoints, schedulerKey, schedulerURI string, loc *time.L
 
 	// 启动grpc服务
 	go startSchedulerGrpc()
+
+	// 启动pprof服务
+	go func() {
+		http.ListenAndServe("localhost:6060", nil)
+	}()
 
 	// 启动httplistener
 	go httpListener()
