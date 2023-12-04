@@ -3,3 +3,15 @@
 go.mod
 
 go.sum
+
+*.svg
+*.sh
+*.png
+
+pictures
+
+*.md
+
+*.gv
+
+*.out

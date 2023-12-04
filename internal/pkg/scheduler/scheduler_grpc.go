@@ -35,11 +35,9 @@ func (s *scheduler) JobStarted(ctx context.Context, req *mypb.JobStartedRequest)
 	job := jobMap[req.Jobid].job
 	mapLock.Unlock()
 	// 修改job的状态
-	job.mu.Lock()
 	job.status = 2
-	job.mu.Unlock()
 
-	mlog.Debugf("job %d started", job.jobid)
+	// mlog.Debugf("job %d started", job.jobid)
 	return &mypb.JobStartedResponse{Message: "Received"}, nil
 }
 
@@ -53,10 +51,8 @@ func (s *scheduler) JobCompleted(ctx context.Context, req *mypb.JobCompletedRequ
 	job := jobMap[req.Jobid].job
 	mapLock.Unlock()
 
-	job.mu.Lock()
 	job.status = 3
-	job.mu.Unlock()
-	mlog.Debugf("job %s completed, id: %d, status: %d", job.Jobname, job.jobid, job.status)
+	// mlog.Debugf("job %s completed, id: %d, status: %d", job.Jobname, job.jobid, job.status)
 	// 向scheduler.recordresult传递任务的执行结果
 	// resultCh <- []string{req.Jobname, req.Jobresult}
 

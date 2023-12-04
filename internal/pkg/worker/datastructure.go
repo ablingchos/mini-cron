@@ -6,7 +6,7 @@ import (
 )
 
 type JobInfo struct {
-	jobid        int32
+	jobid        uint32
 	JobName      string
 	NextExecTime time.Time
 	Interval     time.Duration

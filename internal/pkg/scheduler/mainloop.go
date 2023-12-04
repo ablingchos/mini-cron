@@ -28,9 +28,9 @@ var (
 	Interval      time.Duration
 	Loc           *time.Location
 	ScheduleScale time.Duration
-	jobNum        int32
+	jobNum        uint32
 	numLock       sync.Mutex
-	jobMap        = make(map[int32]*idMap)
+	jobMap        = make(map[uint32]*idMap)
 	mapLock       sync.Mutex
 	workerClient  = make(map[string]mypb.JobSchedulerClient)
 	workermu      sync.Mutex

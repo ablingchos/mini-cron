@@ -179,7 +179,7 @@ func execJob(job *JobInfo) {
 // 	}
 // }
 
-func recordResult(jobid int32, jobname, jobresult string) {
+func recordResult(jobid uint32, jobname, jobresult string) {
 	jobStatusClient.JobCompleted(context.Background(), &mypb.JobCompletedRequest{
 		Jobid:     jobid,
 		Jobresult: jobresult,

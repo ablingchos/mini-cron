@@ -13,7 +13,7 @@ func TestJobManager(t *testing.T) {
 		jobheap: &jobHeap{},
 	}
 	time1 := time.Now()
-	var i int32
+	var i uint32
 	for i = 5000; i >= 1; i-- {
 		heap.Push(jobM.jobheap, &JobInfo{
 			jobid:        i,
