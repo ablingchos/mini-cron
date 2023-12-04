@@ -55,6 +55,7 @@ func registWorker() {
 		heap.Push(WorkerManager.workerheap, newWorker)
 		WorkerManager.mutex.Unlock()
 
+		workerNumber.Inc()
 		mlog.Infof("New worker %s added to schedule list", newWorker.workerURI)
 		newworker <- struct{}{}
 	}
@@ -192,6 +193,11 @@ func fetchJob() {
 }
 
 func deleteJob(job *JobInfo) {
+	jobDone.Inc()
+	if job.reDispatch {
+		jobRecovered.Inc()
+	}
+
 	mapLock.Lock()
 	worker := jobMap[job.jobid].worker
 	delete(jobMap, job.jobid)
@@ -215,7 +221,8 @@ func jobWatcher(job *JobInfo) {
 
 	<-timer.C
 	if job.status != 3 && !job.reDispatch {
-		mlog.Debugf("job %s didn't receive result, jobid: %d, status: %d", job.Jobname, job.jobid, job.status)
+		jobOverTime.Inc()
+		// mlog.Debugf("job %s didn't receive result, jobid: %d, status: %d", job.Jobname, job.jobid, job.status)
 		numLock.Lock()
 		num := jobNum
 		incNum()

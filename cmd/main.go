@@ -1,13 +1,10 @@
 package main
 
 import (
-	"net/http"
 	"time"
 
 	"git.code.oa.com/red/ms-go/pkg/mlog"
 	"github.com/ablingchos/my-project/internal/pkg/scheduler"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
 
@@ -24,35 +21,6 @@ var (
 	interval = 10 * time.Second
 	loc      *time.Location
 )
-
-var (
-	cpuUsageCollector = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "cpu_usage",
-		Help: "The current CPU usage.",
-	})
-
-	memoryUsageCollector = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "memory_usage",
-		Help: "The current memory usage.",
-	})
-
-	diskUsageCollector = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "disk_usage",
-		Help: "The current disk usage.",
-	})
-)
-
-func init() {
-	http.Handle("/metrics", promhttp.Handler())
-	prometheus.MustRegister(cpuUsageCollector)
-	prometheus.MustRegister(memoryUsageCollector)
-	prometheus.MustRegister(diskUsageCollector)
-	go func() {
-		if err := http.ListenAndServe("localhost:3001", nil); err != nil {
-			mlog.Errorf("Failed to start server", zap.Error(err))
-		}
-	}()
-}
 
 func initial() error {
 	// 设置时区

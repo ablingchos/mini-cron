@@ -15,9 +15,9 @@ var (
 	endpoints    = "http://localhost:2379"
 	schedulerKey = "schedulerURI"
 	schedulerURI = "localhost:50051"
-	workerURI    = "localhost:40051"
-	interval     = 10 * time.Second
-	loc          *time.Location
+	// workerURI    = "localhost:40051"
+	interval = 10 * time.Second
+	// loc          *time.Location
 )
 
 func TestFetchJob(t *testing.T) {

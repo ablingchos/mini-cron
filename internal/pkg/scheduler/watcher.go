@@ -112,6 +112,7 @@ func (hw *heartbeatWatcher) checkTimeout(wg *sync.WaitGroup) {
 					heap.Remove(WorkerManager.workerheap, i)
 					delete(workerClient, value.workerURI)
 					mlog.Infof("worker %s offline, removed from worker list", str)
+					workerNumber.Dec()
 					break
 				}
 			}
