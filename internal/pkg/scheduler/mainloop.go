@@ -66,7 +66,9 @@ func Initial(redisURI, endpoints, schedulerKey, schedulerURI string, loc *time.L
 
 	// 启动pprof服务
 	go func() {
-		http.ListenAndServe("localhost:6060", nil)
+		if err := http.ListenAndServe("localhost:6060", nil); err != nil {
+			mlog.Errorf("Http server error", zap.Error(err))
+		}
 	}()
 
 	// 启动httplistener

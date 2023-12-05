@@ -14,9 +14,9 @@ var (
 	endpoints    = "http://localhost:2379"
 	schedulerKey = "schedulerURI"
 	schedulerURI = "localhost:50051"
-	workerURI1   = "localhost:40051"
-	workerURI2   = "localhost:30051"
-	workerURI3   = "localhost:20051"
+	// workerURI1   = "localhost:40051"
+	// workerURI2   = "localhost:30051"
+	// workerURI3   = "localhost:20051"
 	// 每次调度的间隔时间
 	interval = time.Minute
 	loc      *time.Location
@@ -39,15 +39,22 @@ func main() {
 		mlog.Fatal("Failed to set time zone!", zap.Error(err))
 	}
 
-	go scheduler.Initial(redisURI, endpoints, schedulerKey, schedulerURI, loc, interval)
+	go func() {
+		err := scheduler.Initial(redisURI, endpoints, schedulerKey, schedulerURI, loc, interval)
+		if err != nil {
+			mlog.Fatalf("Failed to start scheduler", zap.Error(err))
+		}
+	}()
 	// if err != nil {
 	// 	mlog.Fatal("Failed to start scheduler", zap.Error(err))
 	// }
 
-	// go worker.Initial(redisURI, endpoints, schedulerKey, workerURI1, loc)
-	// if err != nil {
-	// 	mlog.Fatal("Failed to start worker", zap.Error(err))
-	// }
+	// go func() {
+	// 	err := worker.Initial(redisURI, endpoints, schedulerKey, workerURI1, loc)
+	// 	if err != nil {
+	// 		mlog.Fatal("Failed to start worker", zap.Error(err))
+	// 	}
+	// }()
 
 	// test_redis(redisdb)
 	// myetcd.PrintSchedulerURI(endpoints)

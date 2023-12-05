@@ -110,9 +110,12 @@ func workerLoop() {
 			// 取出堆顶元素（即最早执行元素），调整其下一次执行时间后整堆
 			job := heap.Pop(JobManager.jobheap).(*JobInfo)
 			go func() {
-				jobStatusClient.JobStarted(context.Background(), &mypb.JobStartedRequest{
+				_, err := jobStatusClient.JobStarted(context.Background(), &mypb.JobStartedRequest{
 					Jobid: job.jobid,
 				})
+				if err != nil {
+					mlog.Errorf("JobStarted error", zap.Error(err))
+				}
 				job.status <- struct{}{}
 			}()
 			go execJob(job)
@@ -176,10 +179,13 @@ func execJob(job *JobInfo) {
 func recordResult(job *JobInfo, jobresult string) {
 	go func() {
 		<-job.status
-		jobStatusClient.JobCompleted(context.Background(), &mypb.JobCompletedRequest{
+		_, err := jobStatusClient.JobCompleted(context.Background(), &mypb.JobCompletedRequest{
 			Jobid:     job.jobid,
 			Jobresult: jobresult,
 		})
+		if err != nil {
+			mlog.Errorf("JobCompleted error", zap.Error(err))
+		}
 	}()
 	// 将执行结果写入redis中
 	resultName := "result/" + job.JobName

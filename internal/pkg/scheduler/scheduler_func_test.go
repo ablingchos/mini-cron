@@ -134,7 +134,8 @@ func TestRegistWorker(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 设置调度的时间间隔
-	Initial(redisURI, endpoints, schedulerKey, schedulerURI, loc, interval)
+	err = Initial(redisURI, endpoints, schedulerKey, schedulerURI, loc, interval)
+	assert.NoError(t, err)
 
 	newWorker <- "localhost:40051"
 

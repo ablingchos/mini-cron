@@ -259,9 +259,14 @@ func dispatch(job *JobInfo) {
 	// 修改任务状态为1
 	job.status = 1
 	// grpc派发任务
-	go workerClient[worker.workerURI].DispatchJob(context.Background(), &mypb.DispatchJobRequest{
-		JobInfo: req,
-	})
+	go func() {
+		_, err := workerClient[worker.workerURI].DispatchJob(context.Background(), &mypb.DispatchJobRequest{
+			JobInfo: req,
+		})
+		if err != nil {
+			mlog.Errorf("DispatchJob error", zap.Error(err))
+		}
+	}()
 	// mlog.Debugf("job %s assigned to worker %s, jobid: %d", job.Jobname, worker.workerURI, job.jobid)
 	go jobWatcher(job)
 }
