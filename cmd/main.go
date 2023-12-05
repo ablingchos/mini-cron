@@ -18,7 +18,7 @@ var (
 	workerURI2   = "localhost:30051"
 	workerURI3   = "localhost:20051"
 	// 每次调度的间隔时间
-	interval = 10 * time.Second
+	interval = time.Minute
 	loc      *time.Location
 )
 

@@ -4,14 +4,10 @@ go.mod
 
 go.sum
 
-*.svg
-*.sh
-*.png
+test.sh
 
-pictures
+*.pprof
 
-*.md
+./*.png
 
-*.gv
-
-*.out
+prometheus.sh

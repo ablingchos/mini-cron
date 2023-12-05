@@ -34,7 +34,7 @@ import (
 
 // type resultStruct struct {
 // 	jobid     int32
-// 	jobname   string
+// 	resultName   string
 // 	jobresult string
 // }
 
@@ -104,18 +104,21 @@ import (
 func workerLoop() {
 	for {
 		// for len(*JobManager.jobheap) > 0 && time.Now().In(Loc).After((*JobManager.jobheap)[0].NextExecTime) {
+		JobManager.mutex.Lock()
 		for len(*JobManager.jobheap) > 0 {
-			JobManager.mutex.Lock()
 			// job := heap.Pop(JobManager.jobheap).(*JobInfo)
 			// 取出堆顶元素（即最早执行元素），调整其下一次执行时间后整堆
 			job := heap.Pop(JobManager.jobheap).(*JobInfo)
-			JobManager.mutex.Unlock()
-			jobStatusClient.JobStarted(context.Background(), &mypb.JobStartedRequest{
-				Jobid: job.jobid,
-			})
+			go func() {
+				jobStatusClient.JobStarted(context.Background(), &mypb.JobStartedRequest{
+					Jobid: job.jobid,
+				})
+				job.status <- struct{}{}
+			}()
 			go execJob(job)
 			// 通知scheduler，job开始执行
 		}
+		JobManager.mutex.Unlock()
 
 		<-newjobCh
 		// ticker := time.After(100 * time.Microsecond)
@@ -159,52 +162,44 @@ func execJob(job *JobInfo) {
 	// 	// resultCh <- []string{job.JobName, string(body)}
 	// 	// resultCh <- resultStruct{
 	// 	// 	jobid:     job.jobid,
-	// 	// 	jobname:   job.JobName,
+	// 	// 	resultName:   job.JobName,
 	// 	// 	jobresult: resp.Status,
 	// 	// }
 	// default:
 	// 	mlog.Error("Func incomplete")
 	// 	// resultCh <- []string{job.JobName, "error"}
 	// }
-	go recordResult(job.jobid, job.JobName, "200 OK")
+	mlog.Debugf("result of %s is: %s, id: %d", job.JobName, "200 OK", job.jobid)
+	go recordResult(job, "200 OK")
 }
 
-// func reportResult() {
-// 	for result := range resultCh {
-// 		jobStatusClient.JobCompleted(context.TODO(), &mypb.JobCompletedRequest{
-// 			Jobname:   result[0],
-// 			Jobresult: result[1],
-// 		})
-// 		mlog.Debugf("result of %s is: %s", result[0], result[1])
-// 	}
-// }
-
-func recordResult(jobid uint32, jobname, jobresult string) {
-	jobStatusClient.JobCompleted(context.Background(), &mypb.JobCompletedRequest{
-		Jobid:     jobid,
-		Jobresult: jobresult,
-	})
-
-	mlog.Debugf("result of %s is: %s, id: %d", jobname, jobresult, jobid)
+func recordResult(job *JobInfo, jobresult string) {
+	go func() {
+		<-job.status
+		jobStatusClient.JobCompleted(context.Background(), &mypb.JobCompletedRequest{
+			Jobid:     job.jobid,
+			Jobresult: jobresult,
+		})
+	}()
 	// 将执行结果写入redis中
-	jobname = "result/" + jobname
+	resultName := "result/" + job.JobName
 	// 判断记录的结果是否大于5条
-	length, err := DbClient.LLen(context.Background(), jobname)
+	length, err := DbClient.LLen(context.Background(), resultName)
 	if err != nil {
 		mlog.Error("", zap.Error(err))
 	}
 	if length == 5 {
-		_, err = DbClient.LPop(context.Background(), jobname)
+		_, err = DbClient.LPop(context.Background(), resultName)
 		if err != nil {
 			mlog.Error("", zap.Error(err))
 		}
 	}
-	_, err = DbClient.RPush(context.Background(), jobname, jobresult)
+	_, err = DbClient.RPush(context.Background(), resultName, jobresult)
 	if err != nil {
 		mlog.Error("", zap.Error(err))
 	}
 
-	// mlog.Debugf("%s: %s", jobname, executeResult)
+	// mlog.Debugf("%s: %s", resultName, executeResult)
 	// for result := range resultCh {
 	// 	// 通知scheduler执行成功
 	// 	jobStatusClient.JobCompleted(context.Background(), &mypb.JobCompletedRequest{
@@ -213,24 +208,24 @@ func recordResult(jobid uint32, jobname, jobresult string) {
 	// 	})
 
 	// 	// 将执行结果写入redis中
-	// 	jobname := "result/" + result.jobname
+	// 	resultName := "result/" + result.resultName
 	// 	// 判断记录的结果是否大于5条
-	// 	length, err := DbClient.LLen(context.Background(), jobname)
+	// 	length, err := DbClient.LLen(context.Background(), resultName)
 	// 	if err != nil {
 	// 		mlog.Error("", zap.Error(err))
 	// 	}
 	// 	if length == 5 {
-	// 		_, err = DbClient.LPop(context.Background(), jobname)
+	// 		_, err = DbClient.LPop(context.Background(), resultName)
 	// 		if err != nil {
 	// 			mlog.Error("", zap.Error(err))
 	// 		}
 	// 	}
-	// 	_, err = DbClient.RPush(context.Background(), jobname, result.jobresult)
+	// 	_, err = DbClient.RPush(context.Background(), resultName, result.jobresult)
 	// 	if err != nil {
 	// 		mlog.Error("", zap.Error(err))
 	// 	}
 
-	// 	// mlog.Debugf("%s: %s", jobname, executeResult)
-	// 	mlog.Debugf("result of %s is: %s", result.jobname, result.jobresult)
+	// 	// mlog.Debugf("%s: %s", resultName, executeResult)
+	// 	mlog.Debugf("result of %s is: %s", result.resultName, result.jobresult)
 	// }
 }

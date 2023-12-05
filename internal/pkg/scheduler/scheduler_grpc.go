@@ -18,8 +18,8 @@ type scheduler struct {
 
 // worker注册
 func (s *scheduler) WorkerHello(ctx context.Context, req *mypb.WorkerHelloRequest) (*mypb.WorkerHelloResponse, error) {
+	go registWorker(req.WorkerURI)
 	mlog.Infof("New worker registered, URI: %s", req.WorkerURI)
-	newWorker <- req.WorkerURI
 	return &mypb.WorkerHelloResponse{Message: "Received"}, nil
 }
 

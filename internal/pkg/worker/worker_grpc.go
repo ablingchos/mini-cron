@@ -37,15 +37,16 @@ func parseJob(req *mypb.DispatchJobRequest) {
 		JobName:      req.JobInfo.Jobname,
 		NextExecTime: nextexectime,
 		Interval:     duration,
+		status:       make(chan struct{}),
 	})
 	JobManager.mutex.Unlock()
-	mlog.Debugf("job %s received, begintime: %s, jobid: %d", req.JobInfo.Jobname, nextexectime.String(), req.JobInfo.Jobid)
+	// mlog.Debugf("job %s received, begintime: %s, jobid: %d", req.JobInfo.Jobname, nextexectime.String(), req.JobInfo.Jobid)
 
 	newjobCh <- struct{}{}
 }
 
 func (w *worker) DispatchJob(ctx context.Context, req *mypb.DispatchJobRequest) (*mypb.DispatchJobResponse, error) {
-	parseJob(req)
+	go parseJob(req)
 	return &mypb.DispatchJobResponse{Message: "Job received"}, nil
 }
 

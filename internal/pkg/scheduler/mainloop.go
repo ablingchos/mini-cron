@@ -36,6 +36,7 @@ var (
 	workermu      sync.Mutex
 	newJob        = make(chan struct{})
 	newWorker     = make(chan string)
+	jobList       = make(map[string]bool)
 )
 
 func Initial(redisURI, endpoints, schedulerKey, schedulerURI string, loc *time.Location, interval time.Duration) error {
@@ -77,7 +78,6 @@ func Initial(redisURI, endpoints, schedulerKey, schedulerURI string, loc *time.L
 	}
 	// mlog.Infof("length of JobManager.jobheap: %d", len(*JobManager.jobheap))
 	go startFetch()
-	go registWorker()
 
 	// 启动worker调度
 	WorkerManager = &workerManager{

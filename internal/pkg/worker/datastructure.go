@@ -10,6 +10,7 @@ type JobInfo struct {
 	JobName      string
 	NextExecTime time.Time
 	Interval     time.Duration
+	status       chan struct{}
 }
 
 // 按job执行时间排序的小根堆

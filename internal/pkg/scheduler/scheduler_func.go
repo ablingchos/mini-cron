@@ -29,36 +29,35 @@ var (
 )
 
 // 当有新的worker上线时，在调度器中对其进行注册,并为其开启一个心跳watcher
-func registWorker() {
-	for workerURI := range newWorker {
-		newWorker := &WorkerInfo{
-			workerURI: workerURI,
-			jobList:   make(map[uint32]bool),
-			// jobList:   make([]int32, 0),
-		}
-
-		conn, err := grpc.Dial(workerURI, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		if err != nil {
-			mlog.Error("Can't connect to worker grpc", zap.Error(err))
-			continue
-		}
-		grpcClient := mypb.NewJobSchedulerClient(conn)
-
-		go newWatcher(EtcdClient, workerURI)
-		// workerWatcher[workerURI] = newWatcher
-
-		workermu.Lock()
-		workerClient[workerURI] = grpcClient
-		workermu.Unlock()
-
-		WorkerManager.mutex.Lock()
-		heap.Push(WorkerManager.workerheap, newWorker)
-		WorkerManager.mutex.Unlock()
-
-		workerNumber.Inc()
-		mlog.Infof("New worker %s added to schedule list", newWorker.workerURI)
-		newworker <- struct{}{}
+func registWorker(workerURI string) {
+	newWorker := &WorkerInfo{
+		workerURI: workerURI,
+		jobList:   make(map[uint32]bool),
+		// jobList:   make([]int32, 0),
 	}
+
+	conn, err := grpc.Dial(workerURI, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		mlog.Error("Can't connect to worker grpc", zap.Error(err))
+		return
+	}
+	grpcClient := mypb.NewJobSchedulerClient(conn)
+
+	go newWatcher(EtcdClient, workerURI)
+	// workerWatcher[workerURI] = newWatcher
+
+	workermu.Lock()
+	workerClient[workerURI] = grpcClient
+	workermu.Unlock()
+
+	WorkerManager.mutex.Lock()
+	heap.Push(WorkerManager.workerheap, newWorker)
+	taskToSchedule.Inc()
+	WorkerManager.mutex.Unlock()
+
+	workerNumber.Inc()
+	mlog.Infof("New worker %s added to schedule list", newWorker.workerURI)
+	newworker <- struct{}{}
 }
 
 // 控制取任务
@@ -68,14 +67,6 @@ func startFetch() {
 
 	now := time.Now().In(Loc)
 	nextScheduleTime := now.Truncate(Interval).Add(Interval - prefetch)
-	// mlog.Debugf("nextScheduleTime: %s, prefetch: %s, Interval: %s", nextScheduleTime.String(), prefetch.String(), Interval.String())
-	// if now.After(nextScheduleTime) {
-	// 	nextScheduleTime = nextScheduleTime.Add(Interval)
-	// }
-
-	// time.Sleep(time.Until(nextScheduleTime))
-	// timer = time.NewTicker(Interval)
-	// fetchCh <- nextScheduleTime
 
 	// 下面的代码功能是用来规划调度器首次调度的开始时间，并从此时间开始初始化定时器
 	// 如果时间用调度尺度换算后大于下一次的调度时间，立即开始调度
@@ -114,6 +105,7 @@ func makeJob(jobNum uint32, jobName string, nextExecTime time.Time, duration tim
 	// 将job信息添加到调度表中
 	JobManager.mutex.Lock()
 	heap.Push(JobManager.jobheap, job)
+	taskToSchedule.Inc()
 	JobManager.mutex.Unlock()
 	// mlog.Debugf("%s added to heap again, next time: %s, jobid: %d", job.Jobname, job.NextExecTime, job.jobid)
 
@@ -135,7 +127,7 @@ func fetchJob() {
 		// 取出该scheduTime的所有任务后删除这个list，回收无效数据
 		_, err = DbClient.Del(context.Background(), scheduleTime.String())
 		if err != nil {
-			mlog.Error("Can't DEL joblist", zap.Error(err))
+			mlog.Error("Can't Del joblist", zap.Error(err))
 		}
 
 		jobNumber := len(resp.([]string))
@@ -159,30 +151,12 @@ func fetchJob() {
 				continue
 			}
 
-			// job := &JobInfo{
-			// 	Jobname:      jobname,
-			// 	NextExecTime: nextexectime,
-			// 	Interval:     duration,
-			// 	// Operation:    ret[],
-			// }
 			numLock.Lock()
 			id := jobNum
 			jobNum = (jobNum + 1) % (math.MaxInt32 + 1)
 			numLock.Unlock()
 
 			makeJob(id, jobname, nextexectime, duration)
-			// 添加jobname到[]*JobInfo的映射
-			// mapLock.Lock()
-			// jobMap[job.jobid] = &idMap{
-			// 	job: job,
-			// }
-			// mapLock.Unlock()
-			//  mlog.Debugf("fetch job: %s, nextExecTime: %s, duration: %s", job.Jobname, job.NextExecTime, job.Interval)
-
-			// 将job信息添加到调度表中
-			// JobManager.mutex.Lock()
-			// heap.Push(JobManager.jobheap, job)
-			// JobManager.mutex.Unlock()
 		}
 		// 如果成功取出了任务，通知调度器开始分派
 		if jobNumber > 0 {
@@ -193,9 +167,9 @@ func fetchJob() {
 }
 
 func deleteJob(job *JobInfo) {
-	jobDone.Inc()
+	taskDone.Inc()
 	if job.reDispatch {
-		jobRecovered.Inc()
+		taskRecovered.Inc()
 	}
 
 	mapLock.Lock()
@@ -221,8 +195,8 @@ func jobWatcher(job *JobInfo) {
 
 	<-timer.C
 	if job.status != 3 && !job.reDispatch {
-		jobOverTime.Inc()
-		// mlog.Debugf("job %s didn't receive result, jobid: %d, status: %d", job.Jobname, job.jobid, job.status)
+		taskOverTime.Inc()
+		mlog.Debugf("job %s didn't receive result, jobid: %d, status: %d", job.Jobname, job.jobid, job.status)
 		numLock.Lock()
 		num := jobNum
 		incNum()
@@ -243,7 +217,7 @@ func jobWatcher(job *JobInfo) {
 		mapLock.Unlock()
 
 		go dispatch(nextJob)
-		mlog.Debugf("Redispatch jobid: %d, begintime: %s", nextJob.jobid, nextJob.NextExecTime)
+		// mlog.Debugf("Redispatch jobid: %d, jobname: %s,begintime: %s", nextJob.jobid, nextJob.Jobname, nextJob.NextExecTime)
 	}
 
 	deleteJob(job)
@@ -256,6 +230,7 @@ func dispatch(job *JobInfo) {
 		JobManager.mutex.Lock()
 		job.reDispatch = true
 		heap.Push(JobManager.jobheap, job)
+		taskToSchedule.Inc()
 		JobManager.mutex.Unlock()
 		return
 	}
@@ -308,9 +283,6 @@ func assignJob() {
 			<-newworker
 			mlog.Debugf("New worker arrived, start to assign job")
 		}
-		// mlog.Debugf("Start to work")
-		// mlog.Debugf("size of jobheap is: %d", JobManager.jobheap.Len())
-		// for JobManager.jobheap.Len() > 0 && now.After((*JobManager.jobheap)[0].NextExecTime.Add(-Interval/20)) {
 		for JobManager.jobheap.Len() > 0 && time.Now().In(Loc).After((*JobManager.jobheap)[0].NextExecTime.Add(-100*time.Microsecond)) {
 			// job := heap.Pop(JobManager.jobheap)
 			// 获取worker堆的堆顶元素
@@ -322,13 +294,19 @@ func assignJob() {
 
 			JobManager.mutex.Lock()
 			job := heap.Pop(JobManager.jobheap).(*JobInfo)
+			taskToSchedule.Dec()
 			JobManager.mutex.Unlock()
 			go dispatch(job)
 
 			nextTime := job.NextExecTime.Add(job.Interval)
 
 			// 如果job是单次任务，则无需判断其下一次循环时间，直接开始分配下一个任务
-			if job.Interval == 0 || job.reDispatch {
+			if job.Interval == 0 {
+				delete(jobList, job.Jobname)
+				taskNumber.Dec()
+				continue
+			}
+			if job.reDispatch {
 				continue
 			}
 
@@ -340,14 +318,6 @@ func assignJob() {
 				if job.Interval < Interval {
 					continue
 				}
-				// 计算任务从开始时间到现在过去了多少个interval
-				// pastIntervals := time.Now().In(Loc).Sub(job.NextExecTime) / job.Interval
-
-				// nextjob := &JobInfo{
-				// 	Jobname:      job.Jobname,
-				// 	NextExecTime: job.NextExecTime.Add((pastIntervals + 1) * job.Interval),
-				// 	Interval:     job.Interval,
-				// }
 				numLock.Lock()
 				id := jobNum
 				incNum()
@@ -377,39 +347,13 @@ func assignJob() {
 						continue
 					}
 				}
-
-				// mapLock.Lock()
-				// jobMap[nextjob.jobid] = &idMap{
-				// 	job: nextjob,
-				// }
-				// mapLock.Unlock()
-
-				// JobManager.mutex.Lock()
-				// heap.Push(JobManager.jobheap, nextjob)
-				// JobManager.mutex.Unlock()
 			case 2:
-				// insertJob := &JobInfo{
-				// 	Jobname:      job.Jobname,
-				// 	NextExecTime: nextTime,
-				// 	Interval:     job.Interval,
-				// }
 				numLock.Lock()
 				id := jobNum
 				incNum()
 				numLock.Unlock()
 
 				makeJob(id, job.Jobname, nextTime, job.Interval)
-				// mapLock.Lock()
-				// jobMap[insertJob.jobid] = &idMap{
-				// 	job: insertJob,
-				// }
-				// mapLock.Unlock()
-
-				// JobManager.mutex.Lock()
-				// heap.Push(JobManager.jobheap, insertJob)
-				// JobManager.mutex.Unlock()
-				// mlog.Debugf("%s added to heap again, next time: %s, jobid: %d", job.Jobname, nextTime, job.jobid)
-				// mlog.Debugf("Length of jobheap is: %d", JobManager.jobheap.Len())
 			case 3:
 				var i interface{} = job.Jobname
 				var tmp interface{} = nextTime.Truncate(time.Second).Format("2006-01-02 15:04:05 -0700 MST")
@@ -425,12 +369,6 @@ func assignJob() {
 					continue
 				}
 			}
-
-			// ticker := time.After(Interval)
-			// if JobManager.jobheap.Len() > 0 {
-			// 	ticker = time.After((*JobManager.jobheap)[0].NextExecTime.Sub(time.Now().In(Loc)) - time.Second)
-			// }
-			// <-ticker
 		}
 		ticker := time.After(100 * time.Microsecond)
 		now := time.Now().In(Loc)
@@ -549,6 +487,10 @@ func processRequest(data *string) {
 	jobname := method + "@" + targetURI + "@" + duration.String()
 	mlog.Debugf("jobname: %s, begintime: %s", jobname, begintime.String())
 
+	if _, ok := jobList[jobname]; !ok {
+		taskNumber.Inc()
+	}
+
 	scheduleTime := begintime.Truncate(Interval)
 
 	job := &JobInfo{
@@ -576,40 +518,10 @@ func processRequest(data *string) {
 
 		JobManager.mutex.Lock()
 		heap.Push(JobManager.jobheap, job)
+		taskToSchedule.Inc()
 		JobManager.mutex.Unlock()
 
 		newJob <- struct{}{}
-
-		// go dispatch(job)
-
-		// durationSinceStart := time.Now().In(Loc).Sub(job.NextExecTime)
-		// // 计算任务从开始时间到现在过去了多少个interval
-		// intervalSinceStart := float64(durationSinceStart) / float64(job.Interval)
-		// nextTime := job.NextExecTime.Add(time.Duration(math.Ceil(intervalSinceStart)) * job.Interval)
-
-		// nextjob := &JobInfo{
-		// 	Jobname:      jobname,
-		// 	NextExecTime: nextTime,
-		// 	Interval:     duration,
-		// }
-		// numLock.Lock()
-		// nextjob.jobid = jobNum
-		// incNum()
-		// numLock.Unlock()
-		// // mlog.Debugf("begintime: %s, nextExecTime: %s", job.NextExecTime, nextjob.NextExecTime)
-
-		// mapLock.Lock()
-		// jobMap[nextjob.jobid] = &idMap{
-		// 	job: nextjob,
-		// }
-		// mapLock.Unlock()
-
-		// JobManager.mutex.Lock()
-		// heap.Push(JobManager.jobheap, nextjob)
-		// JobManager.mutex.Unlock()
-
-		// addToRedis(nextjob)
-		// newJob <- struct{}{}
 	case 2:
 		mapLock.Lock()
 		jobMap[job.jobid] = &idMap{
@@ -619,6 +531,7 @@ func processRequest(data *string) {
 
 		JobManager.mutex.Lock()
 		heap.Push(JobManager.jobheap, job)
+		taskToSchedule.Inc()
 		JobManager.mutex.Unlock()
 
 		newJob <- struct{}{}

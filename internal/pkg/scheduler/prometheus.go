@@ -10,19 +10,31 @@ import (
 )
 
 var (
-	jobDone = prometheus.NewGauge(prometheus.GaugeOpts{
+	taskNumber = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "tasks_",
+		Name:      "number",
+		Help:      "加入系统的所有任务类型的总数量",
+	})
+
+	taskToSchedule = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "tasks_",
+		Name:      "to_schedule",
+		Help:      "待调度的任务的总数量",
+	})
+
+	taskDone = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: "tasks_",
 		Name:      "completed",
 		Help:      "已完成任务的总数量",
 	})
 
-	jobOverTime = prometheus.NewGauge(prometheus.GaugeOpts{
+	taskOverTime = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: "tasks_",
 		Name:      "overtime",
 		Help:      "超时的任务总数量",
 	})
 
-	jobRecovered = prometheus.NewGauge(prometheus.GaugeOpts{
+	taskRecovered = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: "tasks_",
 		Name:      "recovered",
 		Help:      "超时任务的完成数量",
@@ -36,7 +48,7 @@ var (
 )
 
 func init() {
-	prometheus.MustRegister(jobDone, jobOverTime, jobRecovered, workerNumber)
+	prometheus.MustRegister(taskNumber, taskToSchedule, taskDone, taskOverTime, taskRecovered, workerNumber)
 	http.Handle("/metrics", promhttp.Handler())
 	go func() {
 		if err := http.ListenAndServe(":4396", nil); err != nil {
