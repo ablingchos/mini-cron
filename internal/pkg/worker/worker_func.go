@@ -3,6 +3,7 @@ package worker
 import (
 	"container/heap"
 	"context"
+	"time"
 
 	"git.code.oa.com/red/ms-go/pkg/mlog"
 	"git.woa.com/kefuai/my-project/pkg/mypb"
@@ -104,11 +105,15 @@ import (
 func workerLoop() {
 	for {
 		// for len(*JobManager.jobheap) > 0 && time.Now().In(Loc).After((*JobManager.jobheap)[0].NextExecTime) {
-		JobManager.mutex.Lock()
 		for len(*JobManager.jobheap) > 0 {
+			JobManager.mutex.Lock()
 			// job := heap.Pop(JobManager.jobheap).(*JobInfo)
 			// 取出堆顶元素（即最早执行元素），调整其下一次执行时间后整堆
 			job := heap.Pop(JobManager.jobheap).(*JobInfo)
+			JobManager.mutex.Unlock()
+
+			go execJob(job)
+			// 通知scheduler，job开始执行
 			go func() {
 				_, err := jobStatusClient.JobStarted(context.Background(), &mypb.JobStartedRequest{
 					Jobid: job.jobid,
@@ -118,12 +123,14 @@ func workerLoop() {
 				}
 				job.status <- struct{}{}
 			}()
-			go execJob(job)
-			// 通知scheduler，job开始执行
 		}
-		JobManager.mutex.Unlock()
 
-		<-newjobCh
+		ticker := time.After(time.Second)
+
+		select {
+		case <-newjobCh:
+		case <-ticker:
+		}
 		// ticker := time.After(100 * time.Microsecond)
 		// now := time.Now().In(Loc)
 		// if len(*JobManager.jobheap) > 0 {
@@ -187,6 +194,7 @@ func recordResult(job *JobInfo, jobresult string) {
 			mlog.Errorf("JobCompleted error", zap.Error(err))
 		}
 	}()
+
 	// 将执行结果写入redis中
 	resultName := "result/" + job.JobName
 	// 判断记录的结果是否大于5条

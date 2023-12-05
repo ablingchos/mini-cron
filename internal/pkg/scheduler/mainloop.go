@@ -31,9 +31,9 @@ var (
 	jobNum        uint32
 	numLock       sync.Mutex
 	jobMap        = make(map[uint32]*idMap)
-	mapLock       sync.Mutex
+	mapLock       sync.RWMutex
 	workerClient  = make(map[string]mypb.JobSchedulerClient)
-	workermu      sync.Mutex
+	workerLock    sync.Mutex
 	newJob        = make(chan struct{})
 	newWorker     = make(chan string)
 	jobList       = make(map[string]bool)

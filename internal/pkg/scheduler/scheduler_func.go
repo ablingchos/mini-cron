@@ -46,9 +46,9 @@ func registWorker(workerURI string) {
 	go newWatcher(EtcdClient, workerURI)
 	// workerWatcher[workerURI] = newWatcher
 
-	workermu.Lock()
+	workerLock.Lock()
 	workerClient[workerURI] = grpcClient
-	workermu.Unlock()
+	workerLock.Unlock()
 
 	WorkerManager.mutex.Lock()
 	heap.Push(WorkerManager.workerheap, newWorker)
@@ -101,6 +101,7 @@ func makeJob(jobNum uint32, jobName string, nextExecTime time.Time, duration tim
 		job: job,
 	}
 	mapLock.Unlock()
+	// mapLock.Unlock()
 
 	// 将job信息添加到调度表中
 	JobManager.mutex.Lock()
@@ -167,9 +168,11 @@ func fetchJob() {
 }
 
 func deleteJob(job *JobInfo) {
-	taskDone.Inc()
-	if job.reDispatch {
-		taskRecovered.Inc()
+	if job.status == 3 {
+		taskDone.Inc()
+		if job.reDispatch {
+			taskRecovered.Inc()
+		}
 	}
 
 	mapLock.Lock()
@@ -409,7 +412,7 @@ func httpListener() {
 
 			// 启动处理协程
 			go processRequest(&data)
-			mlog.Infof("New request received")
+			// mlog.Infof("New request received")
 		}
 	})
 
@@ -490,7 +493,7 @@ func processRequest(data *string) {
 	}
 
 	jobname := method + "@" + targetURI + "@" + duration.String()
-	mlog.Debugf("jobname: %s, begintime: %s", jobname, begintime.String())
+	// mlog.Debugf("jobname: %s, begintime: %s", jobname, begintime.String())
 
 	if _, ok := jobList[jobname]; !ok {
 		taskNumber.Inc()

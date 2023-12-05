@@ -26,14 +26,14 @@ func (s *scheduler) WorkerHello(ctx context.Context, req *mypb.WorkerHelloReques
 func (s *scheduler) JobStarted(ctx context.Context, req *mypb.JobStartedRequest) (*mypb.JobStartedResponse, error) {
 	// mlog.Debugf("job %s started\n", req.Jobname)
 	// 获取JobInfo
-	mapLock.Lock()
+	mapLock.RLock()
 	if _, ok := jobMap[req.Jobid]; !ok {
 		mlog.Errorf("Job %d deleted", req.Jobid)
-		mapLock.Unlock()
+		mapLock.RUnlock()
 		return &mypb.JobStartedResponse{Message: "Error"}, nil
 	}
 	job := jobMap[req.Jobid].job
-	mapLock.Unlock()
+	mapLock.RUnlock()
 	// 修改job的状态
 	job.status = 2
 
@@ -42,14 +42,14 @@ func (s *scheduler) JobStarted(ctx context.Context, req *mypb.JobStartedRequest)
 }
 
 func (s *scheduler) JobCompleted(ctx context.Context, req *mypb.JobCompletedRequest) (*mypb.JobCompletedResponse, error) {
-	mapLock.Lock()
+	mapLock.RLock()
 	if _, ok := jobMap[req.Jobid]; !ok {
 		mlog.Errorf("Job %d was deleted", req.Jobid)
-		mapLock.Unlock()
+		mapLock.RUnlock()
 		return &mypb.JobCompletedResponse{Message: "Error"}, nil
 	}
 	job := jobMap[req.Jobid].job
-	mapLock.Unlock()
+	mapLock.RUnlock()
 
 	job.status = 3
 	// mlog.Debugf("job %s completed, id: %d, status: %d", job.Jobname, job.jobid, job.status)

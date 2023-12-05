@@ -14,7 +14,7 @@ do
         # for k in "${URI[@]}"
         # do
             # curl -X POST -d "${j} ${i} * * * *,get,${k}" http://localhost:8080/
-        curl -X POST -d "${j} ${i} * * * *,get,www.tencent.com" http://localhost:8080/
+        curl -X POST -d "${j} ${i} * * * *,get,www.bing.com" http://localhost:8080/
         # done
         sleep 1
     done
