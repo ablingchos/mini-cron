@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"git.code.oa.com/red/ms-go/pkg/mlog"
-	"github.com/ablingchos/my-project/internal/pkg/scheduler"
+	"git.woa.com/kefuai/my-project/internal/pkg/scheduler"
 	"go.uber.org/zap"
 )
 

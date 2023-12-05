@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 package mypb;
-option go_package = "github.com/ablingchos/my-project/pkg/mypb";
+option go_package = "git.woa.com/kefuai/my-project/pkg/mypb";
 
 message JobInfo {
     uint32 jobid = 1;

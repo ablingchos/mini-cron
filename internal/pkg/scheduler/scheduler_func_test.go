@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ablingchos/my-project/internal/pkg/kvdb"
+	"git.woa.com/kefuai/my-project/internal/pkg/kvdb"
 	"github.com/stretchr/testify/assert"
 )
 

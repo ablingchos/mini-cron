@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"git.code.oa.com/red/ms-go/pkg/mlog"
-	"github.com/ablingchos/my-project/pkg/mypb"
+	"git.woa.com/kefuai/my-project/pkg/mypb"
 	"github.com/robfig/cron"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"

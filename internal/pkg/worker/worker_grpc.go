@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"git.code.oa.com/red/ms-go/pkg/mlog"
-	"github.com/ablingchos/my-project/pkg/mypb"
+	"git.woa.com/kefuai/my-project/pkg/mypb"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"git.code.oa.com/red/ms-go/pkg/mlog"
-	"github.com/ablingchos/my-project/internal/pkg/kvdb"
-	"github.com/ablingchos/my-project/internal/pkg/myetcd"
-	"github.com/ablingchos/my-project/pkg/mypb"
+	"git.woa.com/kefuai/my-project/internal/pkg/kvdb"
+	"git.woa.com/kefuai/my-project/internal/pkg/myetcd"
+	"git.woa.com/kefuai/my-project/pkg/mypb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
