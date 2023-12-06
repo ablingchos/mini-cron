@@ -61,7 +61,7 @@ func (s *scheduler) JobCompleted(ctx context.Context, req *mypb.JobCompletedRequ
 
 // 启动scheduler的grpc服务,将两个服务注册到同一端口上
 func startSchedulerGrpc() {
-	listner, err := net.Listen("tcp", ":50051")
+	listner, err := net.Listen("tcp", port)
 	if err != nil {
 		mlog.Fatal("Failed to listen", zap.Error(err))
 		return

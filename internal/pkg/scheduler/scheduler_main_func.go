@@ -6,10 +6,12 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"git.code.oa.com/red/ms-go/pkg/mlog"
+	"git.woa.com/kefuai/my-project/internal/pkg/myetcd"
 	"git.woa.com/kefuai/my-project/pkg/mypb"
 	"github.com/robfig/cron"
 	"go.uber.org/zap"
@@ -18,15 +20,40 @@ import (
 )
 
 var (
-	field1    = "method"
-	field2    = "nextexectime"
-	field3    = "Interval"
-	newworker = make(chan struct{})
-	fetchCh   = make(chan time.Time)
-	layout    = "2006-01-02,15:04:05"
-	prefetch  time.Duration
-	// jobCh     = make(chan map[string]interface{})
+	field1      = "method"
+	field2      = "nextexectime"
+	field3      = "Interval"
+	jobHash     = "jobHash"
+	fetchCh     = make(chan time.Time)
+	parseLayout = "2006-01-02,15:04:05"
+	storeLayout = "2006-01-02 15:04:05 -0700 MST"
+	prefetch    time.Duration
 )
+
+// 当worker超时未答复时，将其从worker堆中删除
+func checkWorkerTimeout(hw *myetcd.HeartbeatWatcher) {
+	<-hw.Offline
+
+	WorkerManager.mutex.Lock()
+	for i, value := range *WorkerManager.workerheap {
+		str := hw.Key
+		index := strings.LastIndex(hw.Key, "/")
+		str = strings.TrimPrefix(str, str[:index+1])
+
+		if value.workerURI == str {
+			err := dbClient.HDel(context.Background(), "worker", str)
+			if err != nil {
+				mlog.Errorf("Failed to HDEL %s from redis", str, zap.Error(err))
+			}
+			heap.Remove(WorkerManager.workerheap, i)
+			delete(workerClient, str)
+			mlog.Infof("worker %s offline, removed from worker list", str)
+			workerNumber.Dec()
+			break
+		}
+	}
+	WorkerManager.mutex.Unlock()
+}
 
 // 当有新的worker上线时，在调度器中对其进行注册,并为其开启一个心跳watcher
 func registWorker(workerURI string) {
@@ -43,7 +70,14 @@ func registWorker(workerURI string) {
 	}
 	grpcClient := mypb.NewJobSchedulerClient(conn)
 
-	go newWatcher(EtcdClient, workerURI)
+	var tmp interface{} = "online"
+	err = dbClient.HSet(context.Background(), "worker", workerURI, tmp)
+	if err != nil {
+		mlog.Error("Can't set workerURI to redis", zap.Error(err))
+	}
+
+	hw := myetcd.NewWatcher(EtcdClient, workerURI, workerTimeout)
+	go checkWorkerTimeout(hw)
 	// workerWatcher[workerURI] = newWatcher
 
 	workerLock.Lock()
@@ -103,6 +137,12 @@ func makeJob(jobNum uint32, jobName string, nextExecTime time.Time, duration tim
 	mapLock.Unlock()
 	// mapLock.Unlock()
 
+	var name interface{} = jobName + "," + job.NextExecTime.Truncate(time.Second).Format(storeLayout)
+	err := dbClient.HSet(context.Background(), jobHash, strconv.Itoa(int(jobNum)), name)
+	if err != nil {
+		mlog.Errorf("Failed to add jobid %d to redis", jobNum, zap.Error(err))
+	}
+
 	// 将job信息添加到调度表中
 	JobManager.mutex.Lock()
 	heap.Push(JobManager.jobheap, job)
@@ -120,28 +160,28 @@ func fetchJob() {
 		// 同一个时间段（1分钟）的任务id放在同一个list中，所以直接全部取出
 		// now := time.Now().In(Loc).Truncate(Interval).Add(Interval)
 		// mlog.Debugf("Start fetch time %s", scheduleTime.String())
-		resp, err := DbClient.LRange(context.Background(), scheduleTime.String(), 0, -1)
+		resp, err := dbClient.LRange(context.Background(), scheduleTime.String(), 0, -1)
 		if err != nil {
 			mlog.Error("Can't get from db", zap.Error(err))
 			continue
 		}
 		// 取出该scheduTime的所有任务后删除这个list，回收无效数据
-		_, err = DbClient.Del(context.Background(), scheduleTime.String())
+		_, err = dbClient.Del(context.Background(), scheduleTime.String())
 		if err != nil {
 			mlog.Error("Can't Del joblist", zap.Error(err))
 		}
 
-		jobNumber := len(resp.([]string))
+		jobNum := len(resp.([]string))
 		// 根据任务id，从hashmap中获取所有任务的任务信息
 		for _, jobname := range resp.([]string) {
-			ret, err := DbClient.HMGet(context.Background(), jobname, field1, field2, field3)
+			ret, err := dbClient.HMGet(context.Background(), jobname, field1, field2, field3)
 			if err != nil {
 				mlog.Error("Can't get from db", zap.Error(err))
 				return
 			}
 
 			// 把string解析成time类型
-			nextexectime, err := time.ParseInLocation("2006-01-02 15:04:05 -0700 MST", ret[1], Loc)
+			nextexectime, err := time.ParseInLocation(storeLayout, ret[1], Loc)
 			if err != nil {
 				mlog.Error("Failed to parse time", zap.Error(err))
 				continue
@@ -153,14 +193,14 @@ func fetchJob() {
 			}
 
 			numLock.Lock()
-			id := jobNum
-			jobNum = (jobNum + 1) % (math.MaxInt32 + 1)
+			id := jobNumber
+			incNum()
 			numLock.Unlock()
 
 			makeJob(id, jobname, nextexectime, duration)
 		}
 		// 如果成功取出了任务，通知调度器开始分派
-		if jobNumber > 0 {
+		if jobNum > 0 {
 			// mlog.Debugf("Get %d jobs", jobNumber)
 			newJob <- struct{}{}
 		}
@@ -175,6 +215,11 @@ func deleteJob(job *JobInfo) {
 		}
 	}
 
+	err := dbClient.HDel(context.Background(), jobHash, strconv.Itoa(int(job.jobid)))
+	if err != nil {
+		mlog.Errorf("Failed to HDEL %s:%d", job.Jobname, job.jobid, zap.Error(err))
+	}
+
 	mapLock.Lock()
 	worker := jobMap[job.jobid].worker
 	delete(jobMap, job.jobid)
@@ -186,7 +231,7 @@ func deleteJob(job *JobInfo) {
 	worker.mutex.Unlock()
 }
 
-func jobWatcher(job *JobInfo) {
+func jobWatch(job *JobInfo) {
 	// mlog.Debugf("now: %s, nextexectime: %s", time.Now().In(Loc), job.NextExecTime)
 	var interval time.Duration
 	if job.Interval == 0 {
@@ -197,11 +242,12 @@ func jobWatcher(job *JobInfo) {
 	timer := time.NewTimer(interval / 2)
 
 	<-timer.C
+	timer.Stop()
 	if job.status != 3 && !job.reDispatch {
 		taskOverTime.Inc()
 		mlog.Debugf("job %s didn't receive result, jobid: %d, status: %d", job.Jobname, job.jobid, job.status)
 		numLock.Lock()
-		num := jobNum
+		num := jobNumber
 		incNum()
 		numLock.Unlock()
 
@@ -267,29 +313,34 @@ func dispatch(job *JobInfo) {
 			JobInfo: req,
 		})
 		if err != nil {
-			mlog.Errorf("DispatchJob error", zap.Error(err))
+			mlog.Errorf("DispatchJob error, jobid: %d", job.jobid, zap.Error(err))
 		}
 	}()
 	// mlog.Debugf("job %s assigned to worker %s, jobid: %d", job.Jobname, worker.workerURI, job.jobid)
-	go jobWatcher(job)
+	go jobWatch(job)
 }
 
 func incNum() {
-	if jobNum == math.MaxUint32 {
-		jobNum = 0
+	if jobNumber == math.MaxUint32 {
+		jobNumber = 0
 	} else {
-		jobNum++
+		jobNumber++
+	}
+	err := dbClient.Set(context.Background(), "jobnumber", strconv.Itoa(int(jobNumber)))
+	if err != nil {
+		mlog.Errorf("Failed to update jobnumber to redis", zap.Error(err))
 	}
 }
 
 // 取worker最小堆的最小元素，即最小负载worker，对其进行任务分派
 func assignJob() {
+	var ticker <-chan time.Time
 	// 等待至少一个worker到达后才能开始分配任务
 	for {
 		if WorkerManager.workerheap.Len() == 0 {
 			mlog.Debugf("No worker joined, scheduler fall asleep")
 			<-newworker
-			mlog.Debugf("New worker arrived, start to assign job")
+			// mlog.Debugf("New worker arrived, start to assign job")
 		}
 		for JobManager.jobheap.Len() > 0 && time.Now().In(Loc).After((*JobManager.jobheap)[0].NextExecTime.Add(-100*time.Microsecond)) {
 			// job := heap.Pop(JobManager.jobheap)
@@ -327,7 +378,7 @@ func assignJob() {
 					continue
 				}
 				numLock.Lock()
-				id := jobNum
+				id := jobNumber
 				incNum()
 				numLock.Unlock()
 
@@ -343,13 +394,13 @@ func assignJob() {
 				case 3:
 					var i interface{} = job.Jobname
 					var tmp interface{} = nextTime.Truncate(time.Second).Format("2006-01-02 15:04:05 -0700 MST")
-					err := DbClient.HSet(context.Background(), job.Jobname, field2, tmp)
+					err := dbClient.HSet(context.Background(), job.Jobname, field2, tmp)
 					if err != nil {
 						mlog.Errorf("Failed to change %s time", job.Jobname, zap.Error(err))
 						continue
 					}
 					// mlog.Debugf("%s added to redis, next time: %s", job.Jobname, nextTime)
-					_, err = DbClient.RPush(context.Background(), nextTime.Truncate(Interval).String(), i)
+					_, err = dbClient.RPush(context.Background(), nextTime.Truncate(Interval).String(), i)
 					if err != nil {
 						mlog.Error("Failed to rpush", zap.Error(err))
 						continue
@@ -357,7 +408,7 @@ func assignJob() {
 				}
 			case 2:
 				numLock.Lock()
-				id := jobNum
+				id := jobNumber
 				incNum()
 				numLock.Unlock()
 
@@ -365,20 +416,20 @@ func assignJob() {
 			case 3:
 				var i interface{} = job.Jobname
 				var tmp interface{} = nextTime.Truncate(time.Second).Format("2006-01-02 15:04:05 -0700 MST")
-				err := DbClient.HSet(context.Background(), job.Jobname, field2, tmp)
+				err := dbClient.HSet(context.Background(), job.Jobname, field2, tmp)
 				if err != nil {
 					mlog.Errorf("Failed to change %s time", job.Jobname, zap.Error(err))
 					continue
 				}
 				// mlog.Debugf("%s added to redis, next time: %s", job.Jobname, nextTime)
-				_, err = DbClient.RPush(context.Background(), nextTime.Truncate(Interval).String(), i)
+				_, err = dbClient.RPush(context.Background(), nextTime.Truncate(Interval).String(), i)
 				if err != nil {
 					mlog.Error("Failed to rpush", zap.Error(err))
 					continue
 				}
 			}
 		}
-		ticker := time.After(100 * time.Microsecond)
+		ticker = time.After(100 * time.Microsecond)
 		now := time.Now().In(Loc)
 		if JobManager.jobheap.Len() > 0 {
 			// 如果当前时间在队首job下次执行时间的100ms之前，立即调度，否则等待到100ms前
@@ -398,7 +449,7 @@ func assignJob() {
 
 // 监听客户端的http请求
 // ScheduleScale代表任务调度时精确到哪个尺度，一般是time.Second
-func httpListener() {
+func httpListener(httpPort string) {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			body, err := io.ReadAll(r.Body)
@@ -416,8 +467,8 @@ func httpListener() {
 		}
 	})
 
-	mlog.Infof("httplistener start on port: 8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	mlog.Infof("httplistener start on port%s", httpPort)
+	if err := http.ListenAndServe(httpPort, nil); err != nil {
 		mlog.Fatal("Httplistener err", zap.Error(err))
 	}
 }
@@ -476,7 +527,7 @@ func processRequest(data *string) {
 	// 开始时间为空时，默认为time.Now()+duration时刻开始调度
 	if len(parts) == 3 {
 		// begintime_str = time.Now().Add(duration).Format(layout)
-		begintime_str = time.Now().Format(layout)
+		begintime_str = time.Now().In(Loc).Format(parseLayout)
 		method = parts[1]
 		targetURI = parts[2]
 	} else {
@@ -486,7 +537,7 @@ func processRequest(data *string) {
 	}
 
 	// 将begintime解析为time.Time格式
-	begintime, err := time.ParseInLocation(layout, begintime_str, Loc)
+	begintime, err := time.ParseInLocation(parseLayout, begintime_str, Loc)
 	if err != nil {
 		mlog.Error("Failed to parse begintime", zap.Error(err))
 		return
@@ -499,84 +550,42 @@ func processRequest(data *string) {
 		taskNumber.Inc()
 	}
 
-	scheduleTime := begintime.Truncate(Interval)
-
-	job := &JobInfo{
-		Jobname:      jobname,
-		NextExecTime: begintime,
-		Interval:     duration,
-	}
-	numLock.Lock()
-	job.jobid = jobNum
-	incNum()
-	numLock.Unlock()
-
 	// 如果job的下一次调度时间在当前时刻之前，直接丢弃掉该任务
 	switch judgeScheduleTime(begintime) {
 	case 0:
 		mlog.Debugf("Job %s time expired", jobname)
 		return
-	case 1:
-		// 立即执行一次，然后把下一次调度信息放入heap中
-		mapLock.Lock()
-		jobMap[job.jobid] = &idMap{
-			job: job,
-		}
-		mapLock.Unlock()
+	case 1, 2:
+		numLock.Lock()
+		id := jobNumber
+		incNum()
+		numLock.Unlock()
 
-		JobManager.mutex.Lock()
-		heap.Push(JobManager.jobheap, job)
-		taskToSchedule.Inc()
-		JobManager.mutex.Unlock()
-
+		makeJob(id, jobname, begintime, duration)
 		newJob <- struct{}{}
-	case 2:
-		mapLock.Lock()
-		jobMap[job.jobid] = &idMap{
-			job: job,
-		}
-		mapLock.Unlock()
-
-		JobManager.mutex.Lock()
-		heap.Push(JobManager.jobheap, job)
-		taskToSchedule.Inc()
-		JobManager.mutex.Unlock()
-
-		newJob <- struct{}{}
-		// mlog.Debugf("job %s successufully added to JobManager", jobname)
 	case 3:
+		scheduleTime := begintime.Truncate(Interval)
 		var i interface{} = jobname
-		_, err = DbClient.RPush(context.Background(), scheduleTime.String(), i)
+		_, err = dbClient.RPush(context.Background(), scheduleTime.String(), i)
 		if err != nil {
 			mlog.Error("Failed to rpush", zap.Error(err))
 		}
 	}
-	addToRedis(job)
+	addToRedis(jobname, begintime.String(), duration.String())
 }
 
-func addToRedis(job *JobInfo) {
+func addToRedis(jobname, nextExecTime, interval string) {
 	// 将job加入redis表中
 	hash := make(map[string]interface{})
 	hash[field1] = ""
-	hash[field2] = job.NextExecTime.String()
-	hash[field3] = job.Interval.String()
-	hash["jobname"] = job.Jobname
-	err := DbClient.HMSet(context.Background(), job.Jobname, hash)
+	hash[field2] = nextExecTime
+	hash[field3] = interval
+	hash["jobname"] = jobname
+	err := dbClient.HMSet(context.Background(), jobname, hash)
 	if err != nil {
 		mlog.Errorf("Failed to hmset")
 	}
 }
-
-// func recordJobInfo() {
-// 	for hash := range jobCh {
-// 		jobname := hash["jobname"].(string)
-// 		err := DbClient.HMSet(context.Background(), jobname, hash)
-// 		if err != nil {
-// 			mlog.Error("Failed to hmset", zap.Error(err))
-// 			return
-// 		}
-// 	}
-// }
 
 // 记录job的执行结果（已交给worker来记录）
 // func RecordResult(resultCh <-chan []string) {
@@ -585,30 +594,21 @@ func addToRedis(job *JobInfo) {
 // 		executeResult := execResult[1]
 // 		jobname = "result/" + jobname
 
-// 		length, err := DbClient.LLen(context.Background(), executeResult)
+// 		length, err := dbClient.LLen(context.Background(), executeResult)
 // 		if err != nil {
 // 			mlog.Error("", zap.Error(err))
 // 		}
 // 		if length == 5 {
-// 			_, err = DbClient.LPop(context.Background(), executeResult)
+// 			_, err = dbClient.LPop(context.Background(), executeResult)
 // 			if err != nil {
 // 				mlog.Error("", zap.Error(err))
 // 			}
 // 		}
-// 		_, err = DbClient.RPush(context.Background(), jobname, executeResult)
+// 		_, err = dbClient.RPush(context.Background(), jobname, executeResult)
 // 		if err != nil {
 // 			mlog.Error("", zap.Error(err))
 // 		}
 
 // 		mlog.Debugf("%s: %s", jobname, executeResult)
 // 	}
-// }
-
-// 取出jobname的最新执行结果
-// func FetchLatestResult(jobname string) (string, error) {
-// 	resp, err := DbClient.LRange(context.Background(), jobname, -1, -1)
-// 	if err != nil {
-// 		return "", err
-// 	}
-// 	return resp.(string), err
 // }

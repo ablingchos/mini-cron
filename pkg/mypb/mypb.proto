@@ -55,3 +55,15 @@ message WorkerHelloResponse {
 service EtcdHello {
     rpc WorkerHello(WorkerHelloRequest) returns (WorkerHelloResponse);
 }
+
+message SchedulerSwitchRequest {
+    string schedulerURI = 1;
+}
+
+message SchedulerSwitchResponse {
+    string message = 1;
+}
+
+service SchedulerSwitch {
+    rpc NewScheduler(SchedulerSwitchRequest) returns (SchedulerSwitchResponse);
+}

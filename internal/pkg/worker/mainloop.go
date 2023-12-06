@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"git.code.oa.com/red/ms-go/pkg/mlog"
@@ -13,49 +14,51 @@ import (
 )
 
 var (
-	DbClient          kvdb.KVDb
-	EtcdClient        *clientv3.Client
-	Interval          time.Duration
+	dbClient          kvdb.KVDb
+	etcdClient        *clientv3.Client
 	Loc               *time.Location
 	heartbeatInterval time.Duration
 	etcdHelloClient   mypb.EtcdHelloClient
 	jobStatusClient   mypb.JobStatusClient
+	clientLock        sync.RWMutex
 	JobManager        *jobManager
+	port              string
+	// schedulerOffline  = make(chan struct{})
 	// ip                string
-	port string
+	// Interval          time.Duration
 	// jobMap            = make(map[int]*JobInfo)
 	// workerKey         = "workerURI"
 )
 
-func Initial(redisURI, endpoints, schedulerKey, workerURI string, loc *time.Location) error {
+func Initial(redisURI, endpoints, schedulerKey, workerURI string, loc *time.Location, hb time.Duration) error {
 
 	idx := strings.LastIndex(workerURI, ":")
 	// ip = workerURI[:idx-1]
 	port = workerURI[idx:]
 
 	// 连接到redis
-	DbClient = &kvdb.RedisDB{}
-	err := DbClient.Connect(redisURI)
+	dbClient = &kvdb.RedisDB{}
+	err := dbClient.Connect(redisURI)
 	if err != nil {
 		return err
 	}
 
 	// 连接到etcd
-	EtcdClient, err := myetcd.ConnectToEtcd(endpoints, workerURI, "online")
+	etcdClient, err = myetcd.ConnectToEtcd(endpoints, workerURI, "online")
 	if err != nil {
 		return err
 	}
 
 	// 获取scheduler的grpc服务地址
 	var schedulerURI string
-	resp, err := EtcdClient.Get(context.Background(), schedulerKey)
+	resp, err := etcdClient.Get(context.Background(), schedulerKey)
 	if err != nil {
 		return err
 	}
 	for _, v := range resp.Kvs {
 		schedulerURI = string(v.Value)
 	}
-	mlog.Infof("Get schedulerURI: %s", schedulerURI)
+	// mlog.Infof("Get schedulerURI: %s", schedulerURI)
 
 	Loc = loc
 
@@ -75,10 +78,11 @@ func Initial(redisURI, endpoints, schedulerKey, workerURI string, loc *time.Loca
 	if err != nil {
 		return err
 	}
+	// go schedulerTimeout()
 
-	// 开始向scheduler发送心跳包
-	heartbeatInterval = 2 * time.Second
-	go heartBeat(EtcdClient, "heartbeat/"+workerURI, "online", heartbeatInterval)
+	// 开始向etcd发送心跳包
+	heartbeatInterval = hb
+	go myetcd.HeartBeat(etcdClient, workerURI, "online", heartbeatInterval)
 
 	// 获取scheduler的job状态上报服务客户端
 	jobStatusClient, err = jobStatus(schedulerURI)
@@ -86,11 +90,13 @@ func Initial(redisURI, endpoints, schedulerKey, workerURI string, loc *time.Loca
 		return err
 	}
 
+	// 初始化工作堆
 	JobManager = &jobManager{
 		jobheap: &jobHeap{},
 	}
 
 	go workerLoop()
 
+	mlog.Infof("Worker %s initial successfully, start to work", workerURI)
 	return nil
 }

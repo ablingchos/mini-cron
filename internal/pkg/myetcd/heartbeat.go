@@ -1,4 +1,4 @@
-package worker
+package myetcd
 
 import (
 	"context"
@@ -9,29 +9,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// func NewWorker(endpoints string) {
-// 	// 建立新的客户端连接
-// 	client, err := newClient([]string{endpoints})
-// 	if err != nil {
-// 		mlog.Fatal("Can't start etcd client", zap.Error(err))
-// 	}
-// 	defer client.Close()
-
-// 	// 获取scheduler的grpc服务地址
-// 	schedulerURI, err := getSchedulerURI(client)
-// 	if err != nil {
-// 		mlog.Fatal("Can't get schedulerURI", zap.Error(err))
-// 	} else {
-// 		mlog.Infof("schedulerURI: %s", schedulerURI)
-// 	}
-
-// 	clienID := 2
-
-// 	hbtest(client, clienID)
-// }
-
-// 客户端心跳包发送函数，每隔interval间隔向服务端发送一个心跳包，如果客户端终止了则停止发送
-func heartBeat(etcdClient *clientv3.Client, key string, value string, interval time.Duration) {
+// 客户端心跳包发送函数，每隔interval间隔向etcd服务端发送一个心跳包，如果客户端终止了则停止发送
+func HeartBeat(etcdClient *clientv3.Client, key string, value string, interval time.Duration) {
+	key = "heartbeat/" + key
 	timer := time.NewTicker(interval)
 	for range timer.C {
 		_, err := etcdClient.Put(context.Background(), key, value)

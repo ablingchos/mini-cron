@@ -324,3 +324,93 @@ var EtcdHello_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "mypb.proto",
 }
+
+const (
+	SchedulerSwitch_NewScheduler_FullMethodName = "/mypb.SchedulerSwitch/NewScheduler"
+)
+
+// SchedulerSwitchClient is the client API for SchedulerSwitch service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type SchedulerSwitchClient interface {
+	NewScheduler(ctx context.Context, in *SchedulerSwitchRequest, opts ...grpc.CallOption) (*SchedulerSwitchResponse, error)
+}
+
+type schedulerSwitchClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewSchedulerSwitchClient(cc grpc.ClientConnInterface) SchedulerSwitchClient {
+	return &schedulerSwitchClient{cc}
+}
+
+func (c *schedulerSwitchClient) NewScheduler(ctx context.Context, in *SchedulerSwitchRequest, opts ...grpc.CallOption) (*SchedulerSwitchResponse, error) {
+	out := new(SchedulerSwitchResponse)
+	err := c.cc.Invoke(ctx, SchedulerSwitch_NewScheduler_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SchedulerSwitchServer is the server API for SchedulerSwitch service.
+// All implementations must embed UnimplementedSchedulerSwitchServer
+// for forward compatibility
+type SchedulerSwitchServer interface {
+	NewScheduler(context.Context, *SchedulerSwitchRequest) (*SchedulerSwitchResponse, error)
+	mustEmbedUnimplementedSchedulerSwitchServer()
+}
+
+// UnimplementedSchedulerSwitchServer must be embedded to have forward compatible implementations.
+type UnimplementedSchedulerSwitchServer struct {
+}
+
+func (UnimplementedSchedulerSwitchServer) NewScheduler(context.Context, *SchedulerSwitchRequest) (*SchedulerSwitchResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method NewScheduler not implemented")
+}
+func (UnimplementedSchedulerSwitchServer) mustEmbedUnimplementedSchedulerSwitchServer() {}
+
+// UnsafeSchedulerSwitchServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to SchedulerSwitchServer will
+// result in compilation errors.
+type UnsafeSchedulerSwitchServer interface {
+	mustEmbedUnimplementedSchedulerSwitchServer()
+}
+
+func RegisterSchedulerSwitchServer(s grpc.ServiceRegistrar, srv SchedulerSwitchServer) {
+	s.RegisterService(&SchedulerSwitch_ServiceDesc, srv)
+}
+
+func _SchedulerSwitch_NewScheduler_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SchedulerSwitchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SchedulerSwitchServer).NewScheduler(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SchedulerSwitch_NewScheduler_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SchedulerSwitchServer).NewScheduler(ctx, req.(*SchedulerSwitchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// SchedulerSwitch_ServiceDesc is the grpc.ServiceDesc for SchedulerSwitch service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var SchedulerSwitch_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "mypb.SchedulerSwitch",
+	HandlerType: (*SchedulerSwitchServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "NewScheduler",
+			Handler:    _SchedulerSwitch_NewScheduler_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "mypb.proto",
+}

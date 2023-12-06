@@ -55,7 +55,7 @@ func (r *RedisDB) HGetAll(ctx context.Context, key string) (map[string]string, e
 }
 
 func (r *RedisDB) HDel(ctx context.Context, key string, fields ...string) error {
-	return r.DbClient.HDel(ctx, key)
+	return r.DbClient.HDel(ctx, key, fields...)
 }
 
 func (r *RedisDB) HMGet(ctx context.Context, key string, fields ...string) ([]string, error) {

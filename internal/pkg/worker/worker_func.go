@@ -92,14 +92,23 @@ import (
 // 		}
 // 		JobManager.mutex.Unlock()
 
-// 		select {
-// 		case <-nextTick:
-// 		case job := <-newjobCh:
-// 			JobManager.mutex.Lock()
-// 			heap.Push(JobManager.jobheap, job)
-// 			JobManager.mutex.Unlock()
-// 		}
-// 	}
+//			select {
+//			case <-nextTick:
+//			case job := <-newjobCh:
+//				JobManager.mutex.Lock()
+//				heap.Push(JobManager.jobheap, job)
+//				JobManager.mutex.Unlock()
+//			}
+//		}
+//	}
+//
+
+// 如果scheduler掉线，获取新scheduler的地址并重新获取grpc连接
+// func schedulerTimeout() {
+// 	<-schedulerOffline
+
+// 	mlog.Infof("Scheduler offline, begin to switch")
+
 // }
 
 func workerLoop() {
@@ -115,11 +124,14 @@ func workerLoop() {
 			go execJob(job)
 			// 通知scheduler，job开始执行
 			go func() {
+				clientLock.RLock()
 				_, err := jobStatusClient.JobStarted(context.Background(), &mypb.JobStartedRequest{
 					Jobid: job.jobid,
 				})
+				clientLock.RUnlock()
 				if err != nil {
 					mlog.Errorf("JobStarted error", zap.Error(err))
+					time.Sleep(2 * time.Second)
 				}
 				job.status <- struct{}{}
 			}()
@@ -186,10 +198,12 @@ func execJob(job *JobInfo) {
 func recordResult(job *JobInfo, jobresult string) {
 	go func() {
 		<-job.status
+		clientLock.RLock()
 		_, err := jobStatusClient.JobCompleted(context.Background(), &mypb.JobCompletedRequest{
 			Jobid:     job.jobid,
 			Jobresult: jobresult,
 		})
+		clientLock.RUnlock()
 		if err != nil {
 			mlog.Errorf("JobCompleted error", zap.Error(err))
 		}
@@ -198,17 +212,17 @@ func recordResult(job *JobInfo, jobresult string) {
 	// 将执行结果写入redis中
 	resultName := "result/" + job.JobName
 	// 判断记录的结果是否大于5条
-	length, err := DbClient.LLen(context.Background(), resultName)
+	length, err := dbClient.LLen(context.Background(), resultName)
 	if err != nil {
 		mlog.Error("", zap.Error(err))
 	}
 	if length == 5 {
-		_, err = DbClient.LPop(context.Background(), resultName)
+		_, err = dbClient.LPop(context.Background(), resultName)
 		if err != nil {
 			mlog.Error("", zap.Error(err))
 		}
 	}
-	_, err = DbClient.RPush(context.Background(), resultName, jobresult)
+	_, err = dbClient.RPush(context.Background(), resultName, jobresult)
 	if err != nil {
 		mlog.Error("", zap.Error(err))
 	}

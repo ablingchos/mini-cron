@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -21,28 +22,36 @@ type idMap struct {
 }
 
 var (
-	DbClient      kvdb.KVDb
-	EtcdClient    *clientv3.Client
-	WorkerManager *workerManager
-	JobManager    *jobManager
-	Interval      time.Duration
-	Loc           *time.Location
-	ScheduleScale time.Duration
-	jobNum        uint32
-	numLock       sync.Mutex
-	jobMap        = make(map[uint32]*idMap)
-	mapLock       sync.RWMutex
-	workerClient  = make(map[string]mypb.JobSchedulerClient)
-	workerLock    sync.Mutex
-	newJob        = make(chan struct{})
-	newWorker     = make(chan string)
-	jobList       = make(map[string]bool)
+	port               string
+	schedulerKey       = "schedulerURI"
+	dbClient           kvdb.KVDb
+	EtcdClient         *clientv3.Client
+	WorkerManager      *workerManager
+	JobManager         *jobManager
+	schedulerHeartbeat time.Duration
+	workerTimeout      time.Duration
+	Interval           time.Duration
+	Loc                *time.Location
+	ScheduleScale      time.Duration
+	jobNumber          uint32
+	numLock            sync.Mutex
+	jobMap             = make(map[uint32]*idMap)
+	mapLock            sync.RWMutex
+	workerClient       = make(map[string]mypb.JobSchedulerClient)
+	workerLock         sync.Mutex
+	newJob             = make(chan struct{})
+	newworker          = make(chan struct{})
+	jobList            = make(map[string]bool)
 )
 
-func Initial(redisURI, endpoints, schedulerKey, schedulerURI string, loc *time.Location, interval time.Duration) error {
+func Initial(redisURI, endpoints, schedulerURI string, loc *time.Location, interval, heartbeat, timeout time.Duration) error {
+	idx := strings.LastIndex(schedulerURI, ":")
+	// ip = workerURI[:idx-1]
+	port = schedulerURI[idx:]
+
 	// 连接redis客户端
-	DbClient = &kvdb.RedisDB{}
-	err := DbClient.Connect(redisURI)
+	dbClient = &kvdb.RedisDB{}
+	err := dbClient.Connect(redisURI)
 	if err != nil {
 		mlog.Fatal("Failed to connect to redis", zap.Error(err))
 		return err
@@ -55,6 +64,11 @@ func Initial(redisURI, endpoints, schedulerKey, schedulerURI string, loc *time.L
 		return err
 	}
 
+	workerTimeout = timeout
+	schedulerHeartbeat = heartbeat
+	// 开始发送scheduler心跳包
+	go myetcd.HeartBeat(EtcdClient, "scheduler", "online", schedulerHeartbeat)
+
 	// 设置调度的时间间隔
 	Interval = interval
 	prefetch = Interval / 5
@@ -62,6 +76,7 @@ func Initial(redisURI, endpoints, schedulerKey, schedulerURI string, loc *time.L
 	Loc = loc
 
 	// 启动grpc服务
+	workerTimeout = timeout
 	go startSchedulerGrpc()
 
 	// 启动pprof服务
@@ -72,7 +87,7 @@ func Initial(redisURI, endpoints, schedulerKey, schedulerURI string, loc *time.L
 	}()
 
 	// 启动httplistener
-	go httpListener()
+	go httpListener(":8080")
 
 	// 启动job调度
 	JobManager = &jobManager{
@@ -88,6 +103,6 @@ func Initial(redisURI, endpoints, schedulerKey, schedulerURI string, loc *time.L
 	go assignJob()
 	// go fetchJob(dbclient, time.Now().Truncate(time.Minute), time.Minute, jobmanager)
 
-	// mlog.Infof("Scheduler initial successfully, start to work")
+	mlog.Infof("Scheduler %s initial successfully, start to work", schedulerURI)
 	return nil
 }

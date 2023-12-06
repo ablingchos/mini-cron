@@ -11,12 +11,12 @@ import (
 )
 
 var (
-	redisURI     = "redis://user:Aikefu0530@localhost:6379"
-	endpoints    = "http://localhost:2379"
-	schedulerKey = "schedulerURI"
-	schedulerURI = "localhost:50051"
+	redisURI         = "redis://user:Aikefu0530@localhost:6379"
+	endpoints        = "http://localhost:2379"
+	schedulerURITest = "localhost:50051"
 	// workerURI    = "localhost:40051"
-	interval = 10 * time.Second
+	interval    = 10 * time.Second
+	timeoutTest = 4 * time.Second
 	// loc          *time.Location
 )
 
@@ -25,7 +25,7 @@ func TestFetchJob(t *testing.T) {
 	// dbclient = &kvdb.RedisDB{}
 	err := dbclient.Connect(redisURI)
 	assert.NoError(t, err)
-	DbClient = dbclient
+	dbClient = dbclient
 
 	Loc, err = time.LoadLocation("Asia/Shanghai")
 	assert.NoError(t, err)
@@ -73,9 +73,9 @@ func TestHttpListener(t *testing.T) {
 	var dbclient kvdb.KVDb = &kvdb.RedisDB{}
 	err := dbclient.Connect(redisURI)
 	assert.NoError(t, err)
-	DbClient = dbclient
+	dbClient = dbclient
 
-	go httpListener()
+	go httpListener(":8080")
 
 	cmd := exec.Command("curl", "-X", "POST", "-d", "5 * * * * *,2025-11-16,19:25:00,get,www.baidu.com", "http://localhost:8080/")
 	_, err = cmd.CombinedOutput()
@@ -105,7 +105,7 @@ func TestRecordResult(t *testing.T) {
 	var dbclient kvdb.KVDb = &kvdb.RedisDB{}
 	err := dbclient.Connect(redisURI)
 	assert.NoError(t, err)
-	DbClient = dbclient
+	dbClient = dbclient
 
 	resultCh := make(chan []string)
 	jobname := "get@www.baidu.com@5s"
@@ -129,15 +129,15 @@ func TestRegistWorker(t *testing.T) {
 	assert.NoError(t, err)
 
 	// 连接redis客户端
-	DbClient = &kvdb.RedisDB{}
-	err = DbClient.Connect(redisURI)
+	dbClient = &kvdb.RedisDB{}
+	err = dbClient.Connect(redisURI)
 	assert.NoError(t, err)
 
 	// 设置调度的时间间隔
-	err = Initial(redisURI, endpoints, schedulerKey, schedulerURI, loc, interval)
+	err = Initial(redisURI, endpoints, schedulerURITest, loc, interval, time.Second, timeoutTest)
 	assert.NoError(t, err)
 
-	newWorker <- "localhost:40051"
+	// newWorker <- "localhost:40051"
 
 	// 启动job调度
 	JobManager = &jobManager{
