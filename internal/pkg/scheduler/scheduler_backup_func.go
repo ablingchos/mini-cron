@@ -38,8 +38,10 @@ func checkSchedulerTimeout(hw *myetcd.HeartbeatWatcher) {
 	// 启动grpc服务
 	go startSchedulerGrpc()
 
+	initPrometheus(":4397")
+
 	// 启动httplistener
-	go httpListener(":8079")
+	go httpListener(":8081")
 
 	// 启动job调度
 	JobManager = &jobManager{

@@ -86,6 +86,8 @@ func Initial(redisURI, endpoints, schedulerURI string, loc *time.Location, inter
 		}
 	}()
 
+	initPrometheus(":4396")
+
 	// 启动httplistener
 	go httpListener(":8080")
 

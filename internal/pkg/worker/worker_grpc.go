@@ -20,11 +20,13 @@ type worker struct {
 
 var newjobCh = make(chan struct{})
 
+// 通知job到达
 func (w *worker) DispatchJob(ctx context.Context, req *mypb.DispatchJobRequest) (*mypb.DispatchJobResponse, error) {
 	go parseJob(req)
 	return &mypb.DispatchJobResponse{Message: "Job received"}, nil
 }
 
+// 通知scheduler变更
 func (w *worker) NewScheduler(ctx context.Context, req *mypb.SchedulerSwitchRequest) (*mypb.SchedulerSwitchResponse, error) {
 	// 获取scheduler的job状态上报服务客户端
 	var err error
@@ -38,6 +40,7 @@ func (w *worker) NewScheduler(ctx context.Context, req *mypb.SchedulerSwitchRequ
 	return &mypb.SchedulerSwitchResponse{Message: "Scheduler changed"}, err
 }
 
+// 注册etcd服务
 func etcdHello(schedulerKey, schedulerURI string) (mypb.EtcdHelloClient, error) {
 	conn, err := grpc.Dial(schedulerURI, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -57,6 +60,7 @@ func StartWorkerGrpc() {
 
 	svr := grpc.NewServer()
 	mypb.RegisterJobSchedulerServer(svr, &worker{})
+	mypb.RegisterSchedulerSwitchServer(svr, &worker{})
 	mlog.Infof("Grpc server listening on port %s", port)
 
 	if err := svr.Serve(listener); err != nil {

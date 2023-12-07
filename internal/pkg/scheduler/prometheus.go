@@ -47,11 +47,11 @@ var (
 	})
 )
 
-func init() {
+func initPrometheus(prometheusPort string) {
 	prometheus.MustRegister(taskNumber, taskToSchedule, taskDone, taskOverTime, taskRecovered, workerNumber)
 	http.Handle("/metrics", promhttp.Handler())
 	go func() {
-		if err := http.ListenAndServe(":4396", nil); err != nil {
+		if err := http.ListenAndServe(prometheusPort, nil); err != nil {
 			mlog.Errorf("", zap.Error(err))
 		}
 	}()
