@@ -48,6 +48,10 @@ func checkWorkerTimeout(hw *myetcd.HeartbeatWatcher) {
 			// 	mlog.Errorf("Failed to HDEL %s from redis", str, zap.Error(err))
 			// }
 			value.online = false
+			err := dbClient.HDel(context.Background(), field4, str)
+			if err != nil {
+				mlog.Errorf("Failed to remove worker %s from redis", str, zap.Error(err))
+			}
 			heap.Remove(WorkerManager.workerheap, i)
 			delete(workerClient, str)
 			mlog.Infof("worker %s offline, removed from worker list", str)
@@ -236,7 +240,8 @@ func deleteJob(job *JobInfo) {
 		mlog.Errorf("Failed to HDEL %s:%d", job.Jobname, job.jobid, zap.Error(err))
 	}
 
-	_, err = dbClient.Del(context.Background(), idstr)
+	key := "job" + idstr
+	_, err = dbClient.Del(context.Background(), key)
 	if err != nil {
 		mlog.Errorf("Failed to DEL %s from redis", idstr, zap.Error(err))
 	}
@@ -319,8 +324,8 @@ func dispatch(job *JobInfo) {
 	worker.jobnumber++
 	worker.jobList[job.jobid] = true
 	worker.mutex.Unlock()
-
 	heap.Fix(WorkerManager.workerheap, 0)
+
 	WorkerManager.mutex.Unlock()
 	req := &mypb.JobInfo{
 		Jobid:        job.jobid,
@@ -333,9 +338,9 @@ func dispatch(job *JobInfo) {
 	jobMap[job.jobid].worker = worker
 	mapLock.Unlock()
 
-	idstr := "job" + strconv.Itoa(int(job.jobid))
+	key := "job" + strconv.Itoa(int(job.jobid))
 	var tmp interface{} = worker.workerURI
-	err := dbClient.HSet(context.Background(), idstr, field4, tmp)
+	err := dbClient.HSet(context.Background(), key, field4, tmp)
 	if err != nil {
 		mlog.Errorf("Failed to add worker of job %d", job.jobid, zap.Error(err))
 	}

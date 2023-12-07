@@ -1,7 +1,6 @@
 package scheduler
 
 import (
-	"container/heap"
 	"context"
 	"strconv"
 	"sync"
@@ -59,14 +58,14 @@ func checkSchedulerTimeout(hw *myetcd.HeartbeatWatcher) {
 	}
 
 	go startFetch()
-	go informWorker()
+	recoverWorker()
 	go assignJob()
-	go recoverJobManager()
+	recoverJobManager()
 	mlog.Infof("Back-up Scheduler %s initial successfully, start to work", schedulerBackupURI)
 }
 
 // 通知worker新的schedulerURI，并将其加入WorkerManager
-func informWorker() {
+func recoverWorker() {
 	resp, err := dbClient.HGetAll(context.Background(), field4)
 	if err != nil {
 		mlog.Errorf("Failed to get worker from redis", zap.Error(err))
@@ -74,16 +73,23 @@ func informWorker() {
 
 	for workerURI := range resp {
 		go func(workerURI string) {
+			// 	newWorker := &WorkerInfo{
+			// 		workerURI: workerURI,
+			// 		jobList:   make(map[uint32]bool),
+			// 		online:    true,
+			// 	}
+
 			conn, err := grpc.Dial(workerURI, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			if err != nil {
 				mlog.Errorf("Failed to dial worker %s", workerURI, zap.Error(err))
 				return
 			}
+			defer conn.Close()
 
-			client1 := mypb.NewJobSchedulerClient(conn)
+			// client1 := mypb.NewJobSchedulerClient(conn)
 
-			client2 := mypb.NewSchedulerSwitchClient(conn)
-			_, err = client2.NewScheduler(context.Background(), &mypb.SchedulerSwitchRequest{
+			client := mypb.NewSchedulerSwitchClient(conn)
+			_, err = client.NewScheduler(context.Background(), &mypb.SchedulerSwitchRequest{
 				SchedulerURI: schedulerBackupURI,
 			})
 			if err != nil {
@@ -91,33 +97,31 @@ func informWorker() {
 				return
 			}
 
-			workerLock.Lock()
-			workerClient[workerURI] = client1
-			workerLock.Unlock()
+			registWorker(workerURI)
 
-			newWorker := &WorkerInfo{
-				workerURI: workerURI,
-				jobList:   make(map[uint32]bool),
-			}
+			// hw := myetcd.NewWatcher(EtcdClient, workerURI, workerTimeout)
+			// go checkWorkerTimeout(hw)
+			// workerNumber.Inc()
 
-			WorkerManager.mutex.Lock()
-			heap.Push(WorkerManager.workerheap, newWorker)
-			taskToSchedule.Inc()
-			WorkerManager.mutex.Unlock()
+			// workerLock.Lock()
+			// workerClient[workerURI] = client1
+			// workerLock.Unlock()
 
-			workerMapLock.Lock()
-			workerMap[workerURI] = newWorker
-			workerMapLock.Unlock()
+			// workerMapLock.Lock()
+			// workerMap[workerURI] = newWorker
+			// workerMapLock.Unlock()
 
-			workerNumber.Inc()
-			mlog.Infof("New worker %s added to schedule list", newWorker.workerURI)
-			newworker <- struct{}{}
+			// WorkerManager.mutex.Lock()
+			// heap.Push(WorkerManager.workerheap, newWorker)
+			// taskToSchedule.Inc()
+			// WorkerManager.mutex.Unlock()
 
-			hw := myetcd.NewWatcher(EtcdClient, workerURI, workerTimeout)
-			go checkWorkerTimeout(hw)
-			workerNumber.Inc()
+			// workerNumber.Inc()
+			// mlog.Infof("New worker %s added to schedule list", newWorker.workerURI)
+			// newworker <- struct{}{}
 		}(workerURI)
 	}
+	time.Sleep(2 * time.Second)
 }
 
 func recoverJobManager() {

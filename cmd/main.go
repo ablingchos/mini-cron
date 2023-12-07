@@ -10,9 +10,9 @@ import (
 
 var (
 	// // redisURI = flag.String("redisURI", "", "redis uri")
-	redisURI  = "redis://user:Aikefu0530@localhost:6379"
-	endpoints = "http://localhost:2379"
-	// schedulerKey       = "schedulerURI"
+	redisURI           = "redis://user:Aikefu0530@localhost:6379"
+	endpoints          = "http://localhost:2379"
+	schedulerKey       = "schedulerURI"
 	schedulerURI       = "localhost:50051"
 	interval           = time.Minute
 	workerTimeout      = 4 * time.Second

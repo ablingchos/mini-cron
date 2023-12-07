@@ -62,7 +62,6 @@ type WorkerInfo struct {
 	jobList   map[uint32]bool
 	mutex     sync.Mutex
 	online    bool
-	// jobList   []int32
 }
 
 type workerHeap []*WorkerInfo
