@@ -61,6 +61,7 @@ type WorkerInfo struct {
 	jobnumber int
 	jobList   map[uint32]bool
 	mutex     sync.Mutex
+	online    bool
 	// jobList   []int32
 }
 

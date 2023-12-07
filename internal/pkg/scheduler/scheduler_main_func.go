@@ -23,7 +23,9 @@ var (
 	field1      = "method"
 	field2      = "nextexectime"
 	field3      = "Interval"
-	jobHash     = "jobHash"
+	field4      = "worker"
+	field5      = "jobname"
+	field6      = "joblist"
 	fetchCh     = make(chan time.Time)
 	parseLayout = "2006-01-02,15:04:05"
 	storeLayout = "2006-01-02 15:04:05 -0700 MST"
@@ -41,10 +43,11 @@ func checkWorkerTimeout(hw *myetcd.HeartbeatWatcher) {
 		str = strings.TrimPrefix(str, str[:index+1])
 
 		if value.workerURI == str {
-			err := dbClient.HDel(context.Background(), "worker", str)
-			if err != nil {
-				mlog.Errorf("Failed to HDEL %s from redis", str, zap.Error(err))
-			}
+			// err := dbClient.HDel(context.Background(), field4, str)
+			// if err != nil {
+			// 	mlog.Errorf("Failed to HDEL %s from redis", str, zap.Error(err))
+			// }
+			value.online = false
 			heap.Remove(WorkerManager.workerheap, i)
 			delete(workerClient, str)
 			mlog.Infof("worker %s offline, removed from worker list", str)
@@ -60,6 +63,7 @@ func registWorker(workerURI string) {
 	newWorker := &WorkerInfo{
 		workerURI: workerURI,
 		jobList:   make(map[uint32]bool),
+		online:    true,
 		// jobList:   make([]int32, 0),
 	}
 
@@ -71,7 +75,7 @@ func registWorker(workerURI string) {
 	grpcClient := mypb.NewJobSchedulerClient(conn)
 
 	var tmp interface{} = "online"
-	err = dbClient.HSet(context.Background(), "worker", workerURI, tmp)
+	err = dbClient.HSet(context.Background(), field4, workerURI, tmp)
 	if err != nil {
 		mlog.Error("Can't set workerURI to redis", zap.Error(err))
 	}
@@ -137,10 +141,21 @@ func makeJob(jobNum uint32, jobName string, nextExecTime time.Time, duration tim
 	mapLock.Unlock()
 	// mapLock.Unlock()
 
-	var name interface{} = jobName + "," + job.NextExecTime.Truncate(time.Second).Format(storeLayout)
-	err := dbClient.HSet(context.Background(), jobHash, strconv.Itoa(int(jobNum)), name)
+	// var name interface{} = jobName + "," + job.NextExecTime.Truncate(time.Second).Format(storeLayout)
+	idstr := strconv.Itoa(int(jobNum))
+	err := dbClient.HSet(context.Background(), field6, idstr, "")
 	if err != nil {
 		mlog.Errorf("Failed to add jobid %d to redis", jobNum, zap.Error(err))
+	}
+
+	key := "job" + idstr
+	insertMap := make(map[string]interface{})
+	insertMap[field2] = nextExecTime.Truncate(time.Second).String()
+	insertMap[field3] = duration.String()
+	insertMap[field5] = jobName
+	err = dbClient.HMSet(context.Background(), key, insertMap)
+	if err != nil {
+		mlog.Errorf("Failed to add %s's information to redis", key, zap.Error(err))
 	}
 
 	// 将job信息添加到调度表中
@@ -215,9 +230,15 @@ func deleteJob(job *JobInfo) {
 		}
 	}
 
-	err := dbClient.HDel(context.Background(), jobHash, strconv.Itoa(int(job.jobid)))
+	idstr := strconv.Itoa(int(job.jobid))
+	err := dbClient.HDel(context.Background(), field6, idstr)
 	if err != nil {
 		mlog.Errorf("Failed to HDEL %s:%d", job.Jobname, job.jobid, zap.Error(err))
+	}
+
+	_, err = dbClient.Del(context.Background(), idstr)
+	if err != nil {
+		mlog.Errorf("Failed to DEL %s from redis", idstr, zap.Error(err))
 	}
 
 	mapLock.Lock()
@@ -243,7 +264,15 @@ func jobWatch(job *JobInfo) {
 
 	<-timer.C
 	timer.Stop()
-	if job.status != 3 && !job.reDispatch {
+	if job.status != 3 {
+		mapLock.RLock()
+		if !jobMap[job.jobid].worker.online {
+			deleteJob(job)
+			mapLock.RUnlock()
+			return
+		}
+		mapLock.RUnlock()
+
 		taskOverTime.Inc()
 		mlog.Debugf("job %s didn't receive result, jobid: %d, status: %d", job.Jobname, job.jobid, job.status)
 		numLock.Lock()
@@ -303,21 +332,33 @@ func dispatch(job *JobInfo) {
 	mapLock.Lock()
 	jobMap[job.jobid].worker = worker
 	mapLock.Unlock()
+
+	idstr := "job" + strconv.Itoa(int(job.jobid))
+	var tmp interface{} = worker.workerURI
+	err := dbClient.HSet(context.Background(), idstr, field4, tmp)
+	if err != nil {
+		mlog.Errorf("Failed to add worker of job %d", job.jobid, zap.Error(err))
+	}
 	// mlog.Debugf("workload of %s: %d", worker.workerURI, worker.jobnumber)
 
 	// 修改任务状态为1
 	job.status = 1
 	// grpc派发任务
-	go func() {
-		_, err := workerClient[worker.workerURI].DispatchJob(context.Background(), &mypb.DispatchJobRequest{
-			JobInfo: req,
-		})
-		if err != nil {
-			mlog.Errorf("DispatchJob error, jobid: %d", job.jobid, zap.Error(err))
-		}
-	}()
+	_, err = workerClient[worker.workerURI].DispatchJob(context.Background(), &mypb.DispatchJobRequest{
+		JobInfo: req,
+	})
+	if err != nil {
+		taskOverTime.Inc()
+		mlog.Errorf("DispatchJob error, jobid: %d", job.jobid, zap.Error(err))
+		job.reDispatch = true
+		JobManager.mutex.Lock()
+		heap.Push(JobManager.jobheap, job)
+		JobManager.mutex.Unlock()
+		<-newJob
+	} else {
+		go jobWatch(job)
+	}
 	// mlog.Debugf("job %s assigned to worker %s, jobid: %d", job.Jobname, worker.workerURI, job.jobid)
-	go jobWatch(job)
 }
 
 func incNum() {

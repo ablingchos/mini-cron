@@ -4,7 +4,7 @@ import (
 	"container/heap"
 	"context"
 	"strconv"
-	"strings"
+	"sync"
 	"time"
 
 	"git.code.oa.com/red/ms-go/pkg/mlog"
@@ -13,6 +13,11 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+)
+
+var (
+	workerMap     = make(map[string]*WorkerInfo)
+	workerMapLock sync.Mutex
 )
 
 func checkSchedulerTimeout(hw *myetcd.HeartbeatWatcher) {
@@ -62,7 +67,7 @@ func checkSchedulerTimeout(hw *myetcd.HeartbeatWatcher) {
 
 // 通知worker新的schedulerURI，并将其加入WorkerManager
 func informWorker() {
-	resp, err := dbClient.HGetAll(context.Background(), "worker")
+	resp, err := dbClient.HGetAll(context.Background(), field4)
 	if err != nil {
 		mlog.Errorf("Failed to get worker from redis", zap.Error(err))
 	}
@@ -100,6 +105,10 @@ func informWorker() {
 			taskToSchedule.Inc()
 			WorkerManager.mutex.Unlock()
 
+			workerMapLock.Lock()
+			workerMap[workerURI] = newWorker
+			workerMapLock.Unlock()
+
 			workerNumber.Inc()
 			mlog.Infof("New worker %s added to schedule list", newWorker.workerURI)
 			newworker <- struct{}{}
@@ -112,51 +121,75 @@ func informWorker() {
 }
 
 func recoverJobManager() {
-	resp, err := dbClient.HGetAll(context.Background(), jobHash)
+	resp, err := dbClient.HGetAll(context.Background(), field6)
 	if err != nil {
 		mlog.Fatalf("Failed to recover job from redis", zap.Error(err))
 	}
 
-	for id, info := range resp {
-		go func(id, info string) {
-			parts := strings.Split(info, ",")
-			jobname := parts[0]
-			timeStr := parts[1]
+	for id := range resp {
+		go func(id string) {
+			idstr := "job" + id
+			tmp, err := strconv.ParseUint(id, 10, 32)
+			if err != nil {
+				mlog.Errorf("Failed to transfer to uint", zap.Error(err))
+				return
+			}
+			jobid := uint32(tmp)
 
-			nextExecTime, err := time.ParseInLocation(storeLayout, timeStr, Loc)
+			resp, err := dbClient.HGetAll(context.Background(), idstr)
+			if err != nil {
+				mlog.Errorf("Failed to get %s", idstr, zap.Error(err))
+				return
+			}
+
+			nextExecTime, err := time.ParseInLocation(storeLayout, resp[field2], Loc)
 			if err != nil {
 				mlog.Error("Failed to parse time", zap.Error(err))
 				return
 			}
+			// durationstr, err := dbClient.HGet(context.Background(), jobname, field3)
+			// if err != nil {
+			// 	mlog.Errorf("Failed to get %s from redis", jobname, zap.Error(err))
+			// 	return
+			// }
 
-			durationstr, err := dbClient.HGet(context.Background(), jobname, field3)
+			duration, err := time.ParseDuration(resp[field3])
 			if err != nil {
-				mlog.Errorf("Failed to get %s from redis", jobname, zap.Error(err))
+				mlog.Errorf("Failed to parse duration", zap.Error(err))
 				return
 			}
 
-			duration, err := time.ParseDuration(durationstr)
-			if err != nil {
-				mlog.Errorf("Failed to parse %s duration", jobname, zap.Error(err))
-				return
-			}
+			// idNum, _ := strconv.Atoi(id)
 
-			idNum, _ := strconv.Atoi(id)
-
-			now := time.Now().In(Loc)
-
-			if nextExecTime.Before(now) {
+			// now := time.Now().In(Loc)
+			// 如果job已经被分配给了一个worker
+			if _, ok := resp[field4]; ok {
 				job := &JobInfo{
-					jobid:        uint32(idNum),
-					Jobname:      jobname,
+					jobid:        jobid,
+					Jobname:      resp[field5],
 					NextExecTime: nextExecTime,
 					Interval:     duration,
 				}
+				mapLock.Lock()
+				worker := workerMap[resp[field4]]
+				workerMapLock.Lock()
+				jobMap[jobid] = &idMap{
+					job:    job,
+					worker: worker,
+				}
+				workerMapLock.Unlock()
+				mapLock.Unlock()
+
+				worker.mutex.Lock()
+				worker.jobnumber++
+				worker.jobList[jobid] = true
+				worker.mutex.Unlock()
+
 				go jobWatch(job)
 			} else {
-				makeJob(uint32(idNum), jobname, nextExecTime, duration)
+				makeJob(jobid, resp[field5], nextExecTime, duration)
 				newJob <- struct{}{}
 			}
-		}(id, info)
+		}(id)
 	}
 }
