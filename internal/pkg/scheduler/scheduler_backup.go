@@ -4,8 +4,6 @@ import (
 	"strings"
 	"time"
 
-	_ "net/http/pprof"
-
 	"git.code.oa.com/red/ms-go/pkg/mlog"
 	"git.woa.com/kefuai/my-project/internal/pkg/kvdb"
 	"git.woa.com/kefuai/my-project/internal/pkg/myetcd"
@@ -50,7 +48,7 @@ func InitialBackup(redisURI, endpoints, schBackupURI string, loc *time.Location,
 	// 监听scheduler是否超时
 	workerTimeout = wkTimeout
 	schedulerTimeout = schTimeout
-	hw := myetcd.NewWatcher(EtcdClient, "scheduler", schedulerTimeout)
+	hw := newWatcher(EtcdClient, "scheduler", schedulerTimeout)
 	go checkSchedulerTimeout(hw)
 
 	return nil

@@ -2,24 +2,27 @@ package scheduler
 
 import (
 	"context"
+	"net/http"
+	_ "net/http/pprof"
 	"strconv"
 	"sync"
 	"time"
 
 	"git.code.oa.com/red/ms-go/pkg/mlog"
-	"git.woa.com/kefuai/my-project/internal/pkg/myetcd"
 	"git.woa.com/kefuai/my-project/pkg/mypb"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	// "git.woa.com/kefuai/my-project/internal/pkg/myetcd"
 )
 
 var (
 	workerMap     = make(map[string]*WorkerInfo)
 	workerMapLock sync.Mutex
+	workerDone    = make(chan struct{})
 )
 
-func checkSchedulerTimeout(hw *myetcd.HeartbeatWatcher) {
+func checkSchedulerTimeout(hw *heartbeatWatcher) {
 	<-hw.Offline
 	mlog.Infof("Scheduler crash, begin to take over")
 
@@ -38,9 +41,17 @@ func checkSchedulerTimeout(hw *myetcd.HeartbeatWatcher) {
 	}
 	idNum, _ := strconv.Atoi(number)
 	jobNumber = uint32(idNum)
+	mlog.Debugf("Recovered jobNumber %d", jobNumber)
 
 	// 启动grpc服务
 	go startSchedulerGrpc()
+
+	// 启动pprof服务
+	go func() {
+		if err := http.ListenAndServe("localhost:6060", nil); err != nil {
+			mlog.Errorf("Http server error", zap.Error(err))
+		}
+	}()
 
 	initPrometheus(":4397")
 
@@ -57,11 +68,35 @@ func checkSchedulerTimeout(hw *myetcd.HeartbeatWatcher) {
 		workerheap: &workerHeap{},
 	}
 
-	go startFetch()
-	recoverWorker()
+	go recoverFetch()
+	go recoverWorker()
 	go assignJob()
 	recoverJobManager()
 	mlog.Infof("Back-up Scheduler %s initial successfully, start to work", schedulerBackupURI)
+}
+
+func recoverFetch() {
+	now := time.Now().In(Loc)
+	nextScheduleTime := now.Truncate(Interval).Add(Interval - prefetch)
+	var timer *time.Ticker
+
+	resp, err := dbClient.LRange(context.Background(), nextScheduleTime.String(), 0, -1)
+	if err != nil {
+		mlog.Errorf("Failed to get from db", zap.Error(err))
+	}
+	if len(resp.([]string)) != 0 {
+		fetchCh <- nextScheduleTime.Add(prefetch)
+		nextScheduleTime = nextScheduleTime.Add(Interval)
+	}
+	time.Sleep(time.Until(nextScheduleTime))
+	fetchCh <- nextScheduleTime.Add(prefetch)
+	nextScheduleTime = nextScheduleTime.Add(Interval + prefetch)
+	timer = time.NewTicker(Interval)
+
+	for range timer.C {
+		fetchCh <- nextScheduleTime
+		nextScheduleTime = nextScheduleTime.Add(Interval)
+	}
 }
 
 // 通知worker新的schedulerURI，并将其加入WorkerManager
@@ -69,67 +104,54 @@ func recoverWorker() {
 	resp, err := dbClient.HGetAll(context.Background(), field4)
 	if err != nil {
 		mlog.Errorf("Failed to get worker from redis", zap.Error(err))
+		return
 	}
 
 	for workerURI := range resp {
-		go func(workerURI string) {
-			// 	newWorker := &WorkerInfo{
-			// 		workerURI: workerURI,
-			// 		jobList:   make(map[uint32]bool),
-			// 		online:    true,
-			// 	}
+		// go func(workerURI string) {
+		// 	newWorker := &WorkerInfo{
+		// 		workerURI: workerURI,
+		// 		jobList:   make(map[uint32]bool),
+		// 		online:    true,
+		// 	}
+		mlog.Debugf("Worker %s begin to solve", workerURI)
+		conn, err := grpc.Dial(workerURI, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			mlog.Errorf("Failed to dial worker %s", workerURI, zap.Error(err))
+			continue
+		}
 
-			conn, err := grpc.Dial(workerURI, grpc.WithTransportCredentials(insecure.NewCredentials()))
-			if err != nil {
-				mlog.Errorf("Failed to dial worker %s", workerURI, zap.Error(err))
-				return
-			}
-			defer conn.Close()
+		// client1 := mypb.NewJobSchedulerClient(conn)
 
-			// client1 := mypb.NewJobSchedulerClient(conn)
+		client := mypb.NewSchedulerSwitchClient(conn)
+		_, err = client.NewScheduler(context.Background(), &mypb.SchedulerSwitchRequest{
+			SchedulerURI: schedulerBackupURI,
+		})
+		if err != nil {
+			mlog.Errorf("Failed to infom worker %s", workerURI, zap.Error(err))
+			continue
+		}
 
-			client := mypb.NewSchedulerSwitchClient(conn)
-			_, err = client.NewScheduler(context.Background(), &mypb.SchedulerSwitchRequest{
-				SchedulerURI: schedulerBackupURI,
-			})
-			if err != nil {
-				mlog.Errorf("Failed to infom worker %s", workerURI, zap.Error(err))
-				return
-			}
-
-			registWorker(workerURI)
-
-			// hw := myetcd.NewWatcher(EtcdClient, workerURI, workerTimeout)
-			// go checkWorkerTimeout(hw)
-			// workerNumber.Inc()
-
-			// workerLock.Lock()
-			// workerClient[workerURI] = client1
-			// workerLock.Unlock()
-
-			// workerMapLock.Lock()
-			// workerMap[workerURI] = newWorker
-			// workerMapLock.Unlock()
-
-			// WorkerManager.mutex.Lock()
-			// heap.Push(WorkerManager.workerheap, newWorker)
-			// taskToSchedule.Inc()
-			// WorkerManager.mutex.Unlock()
-
-			// workerNumber.Inc()
-			// mlog.Infof("New worker %s added to schedule list", newWorker.workerURI)
-			// newworker <- struct{}{}
-		}(workerURI)
+		worker := registWorker(workerURI)
+		workerMapLock.Lock()
+		workerMap[workerURI] = worker
+		workerMapLock.Unlock()
+		mlog.Debugf("Worker %s solved", workerURI)
 	}
-	time.Sleep(2 * time.Second)
+
+	mlog.Debugf("111")
+	workerDone <- struct{}{}
+	mlog.Debugf("Workerdone")
 }
 
 func recoverJobManager() {
+	<-workerDone
+	mlog.Debugf("Begin to recover job")
+
 	resp, err := dbClient.HGetAll(context.Background(), field6)
 	if err != nil {
 		mlog.Fatalf("Failed to recover job from redis", zap.Error(err))
 	}
-
 	for id := range resp {
 		go func(id string) {
 			idstr := "job" + id
@@ -174,14 +196,22 @@ func recoverJobManager() {
 					NextExecTime: nextExecTime,
 					Interval:     duration,
 				}
-				mapLock.Lock()
-				worker := workerMap[resp[field4]]
+
+				var worker *WorkerInfo
 				workerMapLock.Lock()
+				if _, ok = workerMap[resp[field4]]; !ok {
+					mlog.Errorf("Failed to get worker %s", resp[field4], zap.Error(err))
+					workerMapLock.Unlock()
+					return
+				}
+				worker = workerMap[resp[field4]]
+				workerMapLock.Unlock()
+
+				mapLock.Lock()
 				jobMap[jobid] = &idMap{
 					job:    job,
 					worker: worker,
 				}
-				workerMapLock.Unlock()
 				mapLock.Unlock()
 
 				worker.mutex.Lock()
@@ -190,9 +220,11 @@ func recoverJobManager() {
 				worker.mutex.Unlock()
 
 				go jobWatch(job)
+				mlog.Debugf("Start to watch job %d", jobid)
 			} else {
 				makeJob(jobid, resp[field5], nextExecTime, duration)
 				newJob <- struct{}{}
+				mlog.Debugf("Job %d added to jobmanager", jobid)
 			}
 		}(id)
 	}

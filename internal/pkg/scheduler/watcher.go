@@ -1,7 +1,8 @@
-package myetcd
+package scheduler
 
 import (
 	"context"
+	"math"
 	"sync"
 	"time"
 
@@ -10,12 +11,12 @@ import (
 	"go.uber.org/zap"
 )
 
-func NewWatcher(client *clientv3.Client, clientURI string, timeout time.Duration) *HeartbeatWatcher {
+func newWatcher(client *clientv3.Client, clientURI string, timeout time.Duration) *heartbeatWatcher {
 	// var wg sync.WaitGroup
 	key := "heartbeat/" + clientURI
 
 	// wg.Add(2)
-	hw := &HeartbeatWatcher{
+	hw := &heartbeatWatcher{
 		client:        client,
 		Key:           key,
 		timeout:       timeout,
@@ -30,8 +31,9 @@ func NewWatcher(client *clientv3.Client, clientURI string, timeout time.Duration
 }
 
 // 心跳观测结构体，包含了客户端信息，key、超时时间、上一次心跳时间以及一个定时器
-type HeartbeatWatcher struct {
+type heartbeatWatcher struct {
 	client        *clientv3.Client
+	worker        *WorkerInfo
 	Key           string
 	timeout       time.Duration
 	lastHeartbeat time.Time
@@ -41,16 +43,24 @@ type HeartbeatWatcher struct {
 }
 
 // 更新最后一次接收到心跳包的时间
-func (hw *HeartbeatWatcher) updateLastHeartbeat() {
+func (hw *heartbeatWatcher) updateNode() {
 	hw.timerLock.Lock()
 	defer hw.timerLock.Unlock()
 
 	hw.lastHeartbeat = time.Now()
 	hw.timer.Reset(hw.timeout)
+	if hw.worker != nil {
+		if hw.worker.jobnumber >= math.MaxUint32/2 {
+			hw.worker.mutex.Lock()
+			hw.worker.jobnumber -= math.MaxUint32 / 2
+			hw.worker.mutex.Unlock()
+		}
+		hw.worker.online = true
+	}
 }
 
 // hw结构体中的函数，用于实现对指定key的监控操作
-func (hw *HeartbeatWatcher) watch(ctx context.Context, key string) {
+func (hw *heartbeatWatcher) watch(ctx context.Context, key string) {
 	for {
 		// mlog.Debug("Getting initial systemopen before watch")
 		resp, err := hw.client.KV.Get(ctx, key)
@@ -61,7 +71,7 @@ func (hw *HeartbeatWatcher) watch(ctx context.Context, key string) {
 		rev := resp.Header.Revision
 		for etcdEvent := range hw.client.Watch(ctx, key, clientv3.WithRev(rev+1)) {
 			for _, ev := range etcdEvent.Events {
-				hw.updateLastHeartbeat()
+				hw.updateNode()
 				if string(ev.Kv.Value) == "offline" {
 					mlog.Debug("Watch over")
 					return
@@ -72,7 +82,7 @@ func (hw *HeartbeatWatcher) watch(ctx context.Context, key string) {
 }
 
 // 定期（timeout间隔）检查是否超时，如果超时就把key所对应的value值更新为offline，关闭定时器并退出函数
-func (hw *HeartbeatWatcher) checkTimeout() {
+func (hw *heartbeatWatcher) checkTimeout() {
 	for range hw.timer.C {
 		if time.Since(hw.lastHeartbeat) >= hw.timeout {
 			hw.Offline <- struct{}{}

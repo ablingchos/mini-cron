@@ -32,11 +32,12 @@ func (w *worker) NewScheduler(ctx context.Context, req *mypb.SchedulerSwitchRequ
 	var err error
 	clientLock.Lock()
 	jobStatusClient, err = jobStatus(req.SchedulerURI)
-	clientLock.Unlock()
-
 	if err != nil {
 		mlog.Errorf("Failed to switch scheduler", zap.Error(err))
 	}
+	clientLock.Unlock()
+
+	mlog.Debugf("Scheduler switched to %s", req.SchedulerURI)
 	return &mypb.SchedulerSwitchResponse{Message: "Scheduler changed"}, err
 }
 
