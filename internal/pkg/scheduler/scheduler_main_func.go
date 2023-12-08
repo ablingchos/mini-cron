@@ -261,6 +261,9 @@ func deleteJob(job *JobInfo) {
 	delete(jobMap, job.jobid)
 	mapLock.Unlock()
 
+	if worker == nil || !worker.online {
+		return
+	}
 	worker.mutex.Lock()
 	worker.jobnumber--
 	delete(worker.jobList, job.jobid)

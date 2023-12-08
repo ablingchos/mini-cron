@@ -13,6 +13,7 @@ import (
 func HeartBeat(etcdClient *clientv3.Client, key string, value string, interval time.Duration) {
 	key = "heartbeat/" + key
 	timer := time.NewTicker(interval)
+	defer timer.Stop()
 	for range timer.C {
 		_, err := etcdClient.Put(context.Background(), key, value)
 		if err != nil {
