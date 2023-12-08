@@ -70,6 +70,7 @@ func registWorker(workerURI string) *WorkerInfo {
 		// jobList:   make([]int32, 0),
 	}
 
+	mlog.Debugf("before grpc.dial")
 	conn, err := grpc.Dial(workerURI, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		mlog.Error("Can't connect to worker grpc", zap.Error(err))
@@ -88,16 +89,24 @@ func registWorker(workerURI string) *WorkerInfo {
 	go checkWorkerTimeout(hw)
 	// workerWatcher[workerURI] = newWatcher
 
+	mlog.Debugf("before workerLock")
 	workerLock.Lock()
 	workerClient[workerURI] = grpcClient
 	workerLock.Unlock()
 
+	mlog.Debugf("before WorkerManager.mutex.Lock")
 	WorkerManager.mutex.Lock()
 	heap.Push(WorkerManager.workerheap, newWorker)
 	WorkerManager.mutex.Unlock()
+	mlog.Debugf("after WorkerManager.mutex.Lock")
 
 	workerNumber.Inc()
-	newworker <- struct{}{}
+
+	mlog.Debugf("before newworker")
+	select {
+	case newworker <- struct{}{}:
+	default:
+	}
 	mlog.Infof("New worker %s added to schedule list", newWorker.workerURI)
 
 	return newWorker

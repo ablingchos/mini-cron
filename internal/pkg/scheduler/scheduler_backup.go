@@ -4,10 +4,8 @@ import (
 	"strings"
 	"time"
 
-	"git.code.oa.com/red/ms-go/pkg/mlog"
 	"git.woa.com/kefuai/my-project/internal/pkg/kvdb"
 	"git.woa.com/kefuai/my-project/internal/pkg/myetcd"
-	"go.uber.org/zap"
 )
 
 var (
@@ -28,14 +26,14 @@ func InitialBackup(redisURI, endpoints, schBackupURI string, loc *time.Location,
 	dbClient = &kvdb.RedisDB{}
 	err := dbClient.Connect(redisURI)
 	if err != nil {
-		mlog.Fatal("Failed to connect to redis", zap.Error(err))
+		// mlog.Fatal("Failed to connect to redis", zap.Error(err))
 		return err
 	}
 
 	// 连接etcd客户端
 	EtcdClient, err = myetcd.ConnectToEtcd(endpoints, schedulerBackupKey, schedulerBackupURI)
 	if err != nil {
-		mlog.Fatal("Failed to connect to etcd", zap.Error(err))
+		// mlog.Fatal("Failed to connect to etcd", zap.Error(err))
 		return err
 	}
 

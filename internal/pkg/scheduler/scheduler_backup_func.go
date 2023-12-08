@@ -24,7 +24,7 @@ var (
 
 func checkSchedulerTimeout(hw *heartbeatWatcher) {
 	<-hw.Offline
-	mlog.Infof("Scheduler crash, begin to take over")
+	mlog.Infof("Scheduler crashed, begin to take over")
 
 	// 更新schedulerURI的值，防止后续加入的worker发送消息错误
 	_, err := EtcdClient.Put(context.Background(), schedulerKey, schedulerBackupURI)
@@ -76,8 +76,10 @@ func checkSchedulerTimeout(hw *heartbeatWatcher) {
 }
 
 func recoverFetch() {
+	go fetchJob()
 	now := time.Now().In(Loc)
 	nextScheduleTime := now.Truncate(Interval).Add(Interval - prefetch)
+	mlog.Debugf("Next fetch time: %s", nextScheduleTime.String())
 	var timer *time.Ticker
 
 	resp, err := dbClient.LRange(context.Background(), nextScheduleTime.String(), 0, -1)
@@ -86,15 +88,18 @@ func recoverFetch() {
 	}
 	if len(resp.([]string)) != 0 {
 		fetchCh <- nextScheduleTime.Add(prefetch)
+		mlog.Debugf("Fetch %s", nextScheduleTime.String())
 		nextScheduleTime = nextScheduleTime.Add(Interval)
 	}
 	time.Sleep(time.Until(nextScheduleTime))
 	fetchCh <- nextScheduleTime.Add(prefetch)
+	mlog.Debugf("Fetch %s", nextScheduleTime.String())
 	nextScheduleTime = nextScheduleTime.Add(Interval + prefetch)
 	timer = time.NewTicker(Interval)
 
 	for range timer.C {
 		fetchCh <- nextScheduleTime
+		mlog.Debugf("Fetch %s", nextScheduleTime.String())
 		nextScheduleTime = nextScheduleTime.Add(Interval)
 	}
 }
@@ -132,7 +137,10 @@ func recoverWorker() {
 			continue
 		}
 
+		mlog.Debugf("before registWorker")
 		worker := registWorker(workerURI)
+
+		mlog.Debugf("before workerMapLock")
 		workerMapLock.Lock()
 		workerMap[workerURI] = worker
 		workerMapLock.Unlock()
@@ -220,11 +228,12 @@ func recoverJobManager() {
 				worker.mutex.Unlock()
 
 				go jobWatch(job)
-				mlog.Debugf("Start to watch job %d", jobid)
 			} else {
+				if _, ok := jobList[resp[field5]]; !ok {
+					taskNumber.Inc()
+				}
 				makeJob(jobid, resp[field5], nextExecTime, duration)
 				newJob <- struct{}{}
-				mlog.Debugf("Job %d added to jobmanager", jobid)
 			}
 		}(id)
 	}

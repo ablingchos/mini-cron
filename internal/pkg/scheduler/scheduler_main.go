@@ -105,6 +105,6 @@ func Initial(redisURI, endpoints, schedulerURI string, loc *time.Location, inter
 	go assignJob()
 	// go fetchJob(dbclient, time.Now().Truncate(time.Minute), time.Minute, jobmanager)
 
-	mlog.Infof("Scheduler %s initial successfully, start to work", schedulerURI)
+	mlog.Debugf("Scheduler %s initial successfully, start to work", schedulerURI)
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"git.code.oa.com/red/ms-go/pkg/mlog"
 	"git.woa.com/kefuai/my-project/internal/pkg/scheduler"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 var (
@@ -35,6 +36,13 @@ func init() {
 		mlog.Errorf("Failed to set timezone", zap.Error(err))
 	}
 	mlog.Infof("Set timezone successful")
+
+	level := zap.NewAtomicLevelAt(zapcore.Level(0))
+	l, err := mlog.New(level)
+	if err != nil {
+		mlog.Errorf("Fail", zap.Error(err))
+	}
+	mlog.SetL(l)
 }
 
 func main() {
