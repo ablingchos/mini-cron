@@ -380,7 +380,7 @@ func dispatch(job *JobInfo) {
 		JobInfo: req,
 	})
 	if err != nil {
-		taskOverTime.Inc()
+		// taskOverTime.Inc()
 		worker.online = false
 		mlog.Errorf("DispatchJob error, jobid: %d", job.jobid, zap.Error(err))
 		job.reDispatch = true
@@ -570,7 +570,7 @@ func judgeScheduleTime(nextExecTime time.Time) int {
 }
 
 // 客户端的请求格式：
-// curl -X POST -d "5 * * * * *,2023-11-16,15:00:00,get,http://Localhost:8080/"
+// curl -X POST -d "5 * * * * *,2023-11-16,15:00:00,get,http://Localhost:8080/" URI
 // 时间参数也可以缺省，默认从time.Now()时间开始
 // job的存储格式：
 // jobname ： get@www.baidu.com@5s

@@ -8,6 +8,10 @@ go.sum
 
 *.pprof
 
-./*.png
+*.png
 
 prometheus.sh
+
+drawio
+
+cmd
