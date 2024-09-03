@@ -1,0 +1,11 @@
+{
+    "url": {
+        "worker1": "localhost:40051",
+        "worker2": "localhost:30051",
+        "worker3": "localhost:20051"
+    },
+    "worker_heartbeat": 2,
+    "interval": 60,
+    "etcd_endpoints": "http://localhost:2379",
+    "loc": "Asia/Shanghai"
+}

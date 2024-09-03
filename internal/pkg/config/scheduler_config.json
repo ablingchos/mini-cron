@@ -1,0 +1,14 @@
+{
+    "url": {
+        "scheduler": "localhost:50051",
+        "scheduler_backup": "localhost:60051"
+    },
+    "worker_timeout": 4,
+    "scheduler_timeout": 2,
+    "scheduler_heartbeat": 1,
+    "db_url": "redis://user:Aikefu0530@localhost:6379",
+    "interval": 60,
+    "etcd_endpoints": "http://localhost:2379",
+    "loc": "Asia/Shanghai",
+    "scheduler_key": "scheduler"
+}

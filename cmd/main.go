@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"time"
 
 	"git.code.oa.com/red/ms-go/pkg/mlog"
@@ -26,6 +27,7 @@ var (
 	// workerURI2   = "localhost:30051"
 	// workerURI3   = "localhost:20051"
 	// 每次调度的间隔时间
+	startUrl = flag.String("key", "", "key")
 )
 
 func init() {

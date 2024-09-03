@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package config;
+option go_package = "git.woa.com/kefuai/my-project/internal/pkg/config";
+
+message SchedulerConfig {
+    map<string, string> url = 1;
+    string etcd_endpoints = 2;
+    string db_url = 3;
+    int64 scheduler_heartbeat = 4;
+    int64 scheduler_timeout = 5;
+    int64 worker_timeout = 6;
+    int64 interval = 7;
+    string loc = 8;
+    string scheduler_key = 9;
+}
+
+message WorkerConfig {
+    repeated string url = 1;
+    string etcd_endpoints = 2;
+    int64 worker_heartbeat = 3;
+    int64 interval = 4;
+    string loc = 5;
+}

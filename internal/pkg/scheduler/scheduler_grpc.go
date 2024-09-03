@@ -11,19 +11,19 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-type scheduler struct {
+type schedulerGrpc struct {
 	mypb.UnimplementedJobStatusServer
 	mypb.UnimplementedEtcdHelloServer
 }
 
 // worker注册
-func (s *scheduler) WorkerHello(ctx context.Context, req *mypb.WorkerHelloRequest) (*mypb.WorkerHelloResponse, error) {
+func (s *schedulerGrpc) WorkerHello(ctx context.Context, req *mypb.WorkerHelloRequest) (*mypb.WorkerHelloResponse, error) {
 	go registWorker(req.WorkerURI)
 	mlog.Infof("New worker registered, URI: %s", req.WorkerURI)
 	return &mypb.WorkerHelloResponse{Message: "Received"}, nil
 }
 
-func (s *scheduler) JobStarted(ctx context.Context, req *mypb.JobStartedRequest) (*mypb.JobStartedResponse, error) {
+func (s *schedulerGrpc) JobStarted(ctx context.Context, req *mypb.JobStartedRequest) (*mypb.JobStartedResponse, error) {
 	// mlog.Debugf("job %s started\n", req.Jobname)
 	// 获取JobInfo
 	mapLock.RLock()
@@ -41,7 +41,7 @@ func (s *scheduler) JobStarted(ctx context.Context, req *mypb.JobStartedRequest)
 	return &mypb.JobStartedResponse{Message: "Received"}, nil
 }
 
-func (s *scheduler) JobCompleted(ctx context.Context, req *mypb.JobCompletedRequest) (*mypb.JobCompletedResponse, error) {
+func (s *schedulerGrpc) JobCompleted(ctx context.Context, req *mypb.JobCompletedRequest) (*mypb.JobCompletedResponse, error) {
 	mapLock.RLock()
 	if _, ok := jobMap[req.Jobid]; !ok {
 		mlog.Errorf("Job %d was deleted", req.Jobid)
@@ -68,14 +68,14 @@ func startSchedulerGrpc() {
 	}
 
 	svr := grpc.NewServer()
-	mypb.RegisterJobStatusServer(svr, &scheduler{})
-	mypb.RegisterEtcdHelloServer(svr, &scheduler{})
+	mypb.RegisterJobStatusServer(svr, &schedulerGrpc{})
+	mypb.RegisterEtcdHelloServer(svr, &schedulerGrpc{})
 
 	mlog.Infof("Scheduler grpc server listening on port 50051")
 	// go RecordResult(resultCh)
 
 	if err := svr.Serve(listner); err != nil {
-		mlog.Fatal("Failed to start scheduler server", zap.Error(err))
+		mlog.Fatal("Failed to start schedulerGrpc server", zap.Error(err))
 	}
 }
 
